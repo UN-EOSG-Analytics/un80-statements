@@ -8,6 +8,7 @@ This app displays videos from [UN Web TV](https://webtv.un.org/en/schedule) in a
 
 ### Current Features
 
+- **Embedded Video Pages**: Click any video to watch directly in the app with Kaltura player
 - **Enhanced Metadata Extraction**: Automatically extracts structured data from video titles
 - **Real-time Status Tracking**: Color-coded badges showing if events are 🔴 Live, Scheduled, or Finished
 - **Smart Sorting**: Sorts by status first (Live → Scheduled → Finished), then by date/time
@@ -20,7 +21,6 @@ This app displays videos from [UN Web TV](https://webtv.un.org/en/schedule) in a
   - **Text filter** for Title search
   - Each column uses the most appropriate filter UI
 - **Active Filters Display**: See all active filters with one-click removal
-- **Direct Links**: Click any video title to view it on the official UN Web TV site
 
 ### Extracted Metadata Fields
 
@@ -68,6 +68,7 @@ Open [http://localhost:3000](http://localhost:3000) to view the app.
 ## Project Structure
 
 - `app/page.tsx` - Main page (server component, fetches data)
+- `app/video/[id]/page.tsx` - Individual video pages with embedded Kaltura player
 - `components/video-table.tsx` - Filterable table (client component with TanStack Table)
 - `lib/un-api.ts` - Scraping logic with enhanced metadata extraction
 - `app/globals.css` - Tailwind CSS v4 styling with UN color palette

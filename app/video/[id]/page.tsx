@@ -1,0 +1,134 @@
+import { getScheduleVideos } from '@/lib/un-api';
+import { notFound } from 'next/navigation';
+import Link from 'next/link';
+import Image from 'next/image';
+
+function extractKalturaId(assetId: string): string | null {
+  // Try different patterns to extract Kaltura entry ID
+  
+  // Pattern 1: ID in parentheses - e.g., "something(1_abc123)"
+  let match = assetId.match(/\(([^)]+)\)/);
+  if (match) return match[1];
+  
+  // Pattern 2: ID in /id/ path - e.g., "something/id/1_abc123"
+  match = assetId.match(/\/id\/([^/]+)/);
+  if (match) return match[1];
+  
+  // Pattern 3: Check if it's already a Kaltura ID format (1_xxxxxx)
+  if (assetId.match(/^1_[a-z0-9]+$/i)) {
+    return assetId;
+  }
+  
+  // Pattern 4: UN format like "k1a/k1a7f1gn3l" -> convert to "1_a7f1gn3l"
+  // Simply extract everything after "/k1" and prepend "1_"
+  match = assetId.match(/\/k1(\w+)$/);
+  if (match) {
+    return `1_${match[1]}`;
+  }
+  
+  // Pattern 5: Just "k1a7f1gn3l" -> convert to "1_a7f1gn3l"
+  match = assetId.match(/^k1(\w+)$/);
+  if (match) {
+    return `1_${match[1]}`;
+  }
+  
+  return null;
+}
+
+export async function generateStaticParams() {
+  const videos = await getScheduleVideos(14);
+  return videos.map(video => ({ id: encodeURIComponent(video.id) }));
+}
+
+export default async function VideoPage({ params }: { params: { id: string } }) {
+  const decodedId = decodeURIComponent(params.id);
+  const videos = await getScheduleVideos(14);
+  const video = videos.find(v => v.id === decodedId);
+
+  if (!video) {
+    notFound();
+  }
+
+  const kalturaId = extractKalturaId(video.id);
+  
+  if (!kalturaId) {
+    return (
+      <main className="min-h-screen bg-background px-4 sm:px-6">
+        <div className="max-w-5xl mx-auto py-8">
+          <Link href="/" className="text-primary hover:underline mb-4 inline-block">
+            ← Back to Schedule
+          </Link>
+          <div className="space-y-2">
+            <p className="text-red-600">Unable to extract video ID</p>
+            <p className="text-sm text-muted-foreground">Asset ID: {video.id}</p>
+            <a
+              href={video.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline text-sm block"
+            >
+              View on UN Web TV →
+            </a>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  const embedUrl = `https://cdnapisec.kaltura.com/p/2503451/embedPlaykitJs/uiconf_id/49754663?iframeembed=true&entry_id=${kalturaId}&config[playback]={"audioLanguage":"en"}&config[ui]={"locale":"en"}`;
+
+  return (
+    <main className="min-h-screen bg-background px-4 sm:px-6">
+      <div className="max-w-5xl mx-auto py-8">
+        <Link href="/" className="inline-flex items-center gap-2 mb-6 hover:opacity-80">
+          <Image
+            src="/images/UN Logo_Horizontal_English/Colour/UN Logo_Horizontal_Colour_English.svg"
+            alt="UN Logo"
+            width={150}
+            height={30}
+            className="h-8 w-auto"
+          />
+        </Link>
+
+        <div className="mb-4">
+          <Link href="/" className="text-primary hover:underline text-sm">
+            ← Back to Schedule
+          </Link>
+        </div>
+
+        <div className="mb-6">
+          <h1 className="text-3xl font-semibold mb-2">{video.cleanTitle}</h1>
+          <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
+            {video.body && <span>{video.body}</span>}
+            {video.body && (video.category || video.duration) && <span>•</span>}
+            {video.category && <span>{video.category}</span>}
+            {video.category && video.duration && <span>•</span>}
+            <span>{video.duration}</span>
+          </div>
+        </div>
+
+        <div className="aspect-video bg-black rounded-lg overflow-hidden">
+          <iframe
+            src={embedUrl}
+            className="w-full h-full"
+            allowFullScreen
+            allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
+            frameBorder="0"
+          />
+        </div>
+
+        <div className="mt-6">
+          <a
+            href={video.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline text-sm"
+          >
+            View on UN Web TV →
+          </a>
+        </div>
+      </div>
+    </main>
+  );
+}
+

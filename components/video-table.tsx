@@ -236,16 +236,17 @@ export function VideoTable({ videos }: { videos: Video[] }) {
       }),
       columnHelper.accessor('cleanTitle', {
         header: 'Title',
-        cell: (info) => (
-          <a
-            href={info.row.original.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline"
-          >
-            {info.getValue()}
-          </a>
-        ),
+        cell: (info) => {
+          const encodedId = encodeURIComponent(info.row.original.id);
+          return (
+            <a
+              href={`/video/${encodedId}`}
+              className="text-primary hover:underline"
+            >
+              {info.getValue()}
+            </a>
+          );
+        },
         size: 400,
         enableColumnFilter: true,
         meta: {
