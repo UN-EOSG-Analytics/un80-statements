@@ -221,7 +221,7 @@ async function fetchVideosForDate(date: string): Promise<Video[]> {
     timezoneMap.set(nid, timestamp);
   }
   
-  const videoBlockPattern = /<h6[^>]*>([^<]+)<\/h6>[\s\S]*?<h4[^>]*>[\s\S]*?href="\/en\/asset\/([^"]+)"[^>]*>[\s\S]*?<div class="field__item">([^<]+)<\/div>/g;
+  const videoBlockPattern = /<h6[^>]*class="text-primary"[^>]*>([^<]+)<\/h6>[\s\S]*?<h4[^>]*>[\s\S]*?href="\/en\/asset\/([^"]+)"[^>]*>[\s\S]*?<div class="field__item">([^<]+)<\/div>/g;
   
   for (const match of html.matchAll(videoBlockPattern)) {
     const [fullMatch, category, assetId, title] = match;
@@ -234,9 +234,9 @@ async function fetchVideosForDate(date: string): Promise<Video[]> {
     const durationMatch = html.match(durationPattern);
     
     // Extract scheduled time by finding the closest preceding timezone div
-    // Look backwards from the current match position
-    const matchIndex = html.indexOf(fullMatch);
-    const precedingHtml = html.substring(Math.max(0, matchIndex - 2000), matchIndex);
+    // Look backwards from the current match position (use match.index from regex)
+    const matchIndex = match.index!;
+    const precedingHtml = html.substring(Math.max(0, matchIndex - 3000), matchIndex);
     
     // Find all data-nid occurrences and take the last one (closest to our match)
     const nidMatches = Array.from(precedingHtml.matchAll(/data-nid="(\d+)"/g));

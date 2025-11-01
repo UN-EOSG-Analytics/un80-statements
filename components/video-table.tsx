@@ -174,10 +174,9 @@ export function VideoTable({ videos }: { videos: Video[] }) {
         header: 'When',
         cell: (info) => {
           const time = info.getValue();
-          if (!time) return new Date(info.row.original.date).toLocaleDateString();
           
           // Apply UN's timezone workaround (see parseUNTimestamp comment above)
-          const date = parseUNTimestamp(time);
+          const date = time ? parseUNTimestamp(time) : new Date(info.row.original.date);
           
           const now = new Date();
           const today = getLocalMidnight(now);
@@ -201,6 +200,8 @@ export function VideoTable({ videos }: { videos: Video[] }) {
               day: 'numeric'
             });
           }
+          
+          if (!time) return dateStr; // No time available, just show date
           
           const timeStr = date.toLocaleTimeString('en-US', { 
             hour: 'numeric', 
