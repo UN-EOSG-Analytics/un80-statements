@@ -1,11 +1,7 @@
-@import url("https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @theme {
-  /* Override default sans font to be Roboto everywhere */
-  --font-sans: Roboto, system-ui, sans-serif;
-  
   /* Custom color palette */
   --color-un-blue: #009edb;
   --color-trout: #495057;
