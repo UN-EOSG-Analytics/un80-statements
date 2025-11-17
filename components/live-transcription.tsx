@@ -1,0 +1,293 @@
+'use client';
+
+import { useEffect, useRef, useState, useCallback } from 'react';
+
+interface KalturaPlayer {
+  currentTime: number;
+  play: () => void;
+}
+
+interface LiveTranscriptionProps {
+  player?: KalturaPlayer;
+  isLive?: boolean;
+}
+
+interface Turn {
+  transcript: string;
+  turn_is_formatted: boolean;
+  end_of_turn: boolean;
+  timestamp?: number;
+}
+
+export function LiveTranscription({ player, isLive }: LiveTranscriptionProps) {
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [currentTranscript, setCurrentTranscript] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string>('');
+  const wsRef = useRef<WebSocket | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+
+  const startStreaming = useCallback(async () => {
+    if (!player || isStreaming) return;
+    setError(null);
+    setStatus('Connecting...');
+
+    try {
+      // Get temporary token from server
+      const response = await fetch('/api/stream-transcribe/token');
+      const data = await response.json();
+
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Failed to get authentication token');
+      }
+
+      const { token } = data;
+      if (!token) {
+        throw new Error('No token received from server');
+      }
+
+      const sampleRate = 16000;
+      const params = new URLSearchParams({
+        token: token,
+        sample_rate: sampleRate.toString(),
+        encoding: 'pcm_s16le',
+        format_turns: 'true',
+      });
+      
+      const ws = new WebSocket(`wss://streaming.assemblyai.com/v3/ws?${params}`);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('WebSocket opened successfully');
+        setStatus('Connected');
+        setIsStreaming(true);
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        console.log('WebSocket message:', data);
+        
+        if (data.type === 'Turn') {
+          if (data.end_of_turn && data.turn_is_formatted) {
+            setTurns(prev => [...prev, {
+              transcript: data.transcript,
+              turn_is_formatted: true,
+              end_of_turn: true,
+              timestamp: player?.currentTime,
+            }]);
+            setCurrentTranscript('');
+          } else {
+            setCurrentTranscript(data.transcript);
+          }
+        } else if (data.type === 'Begin') {
+          setStatus('Transcribing...');
+        } else if (data.type === 'Termination') {
+          setStatus('Session ended');
+        }
+      };
+
+      ws.onerror = (event) => {
+        console.error('WebSocket error:', event);
+        setError('WebSocket connection failed - check browser console for details');
+        setStatus('');
+      };
+
+      ws.onclose = (event) => {
+        console.log('WebSocket closed:', event.code, event.reason);
+        if (event.code !== 1000) {
+          setError(`Connection closed: ${event.reason || 'Unknown reason'} (code: ${event.code})`);
+        }
+        setIsStreaming(false);
+        setStatus('');
+      };
+
+      // Wait for video element to be ready
+      await new Promise<void>((resolve) => {
+        const checkVideo = setInterval(() => {
+          const videoElement = document.querySelector('video');
+          if (videoElement) {
+            clearInterval(checkVideo);
+            resolve();
+          }
+        }, 100);
+        
+        setTimeout(() => {
+          clearInterval(checkVideo);
+          resolve();
+        }, 5000);
+      });
+
+      const videoElement = document.querySelector('video') as HTMLVideoElement;
+      if (!videoElement) {
+        throw new Error('Video player not ready. Please wait for the video to load.');
+      }
+
+      const audioContext = new AudioContext({ sampleRate });
+      audioContextRef.current = audioContext;
+
+      // Create media source from video
+      const source = audioContext.createMediaElementSource(videoElement);
+      sourceRef.current = source;
+
+      // Create processor for resampling and sending audio
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
+
+      // Connect audio path: source -> processor -> destination (for playback)
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+
+      processor.onaudioprocess = (e) => {
+        const inputData = e.inputBuffer.getChannelData(0);
+        const outputData = e.outputBuffer.getChannelData(0);
+        
+        // Pass audio through to output (for user to hear)
+        outputData.set(inputData);
+        
+        // Send to WebSocket for transcription
+        if (ws.readyState === WebSocket.OPEN) {
+          // Resample to 16kHz and convert to PCM16
+          const targetLength = Math.floor(inputData.length * sampleRate / audioContext.sampleRate);
+          const pcm16 = new Int16Array(targetLength);
+          
+          for (let i = 0; i < targetLength; i++) {
+            const srcIndex = Math.floor(i * inputData.length / targetLength);
+            pcm16[i] = Math.max(-32768, Math.min(32767, Math.floor(inputData[srcIndex] * 32768)));
+          }
+
+          ws.send(pcm16.buffer);
+        }
+      };
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to setup audio capture');
+      setStatus('');
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    }
+  }, [player, isStreaming]);
+
+  const stopStreaming = useCallback(() => {
+    if (wsRef.current) {
+      try {
+        wsRef.current.send(JSON.stringify({ type: 'Terminate' }));
+        wsRef.current.close();
+      } catch (e) {
+        console.error('Error closing WebSocket:', e);
+      }
+      wsRef.current = null;
+    }
+
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+
+    if (sourceRef.current) {
+      sourceRef.current.disconnect();
+      sourceRef.current = null;
+    }
+
+    if (workletNodeRef.current) {
+      workletNodeRef.current.disconnect();
+      workletNodeRef.current = null;
+    }
+
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+
+    setIsStreaming(false);
+    setStatus('');
+  }, []);
+
+  const downloadTranscript = useCallback(() => {
+    const text = turns.map(turn => {
+      const timestamp = turn.timestamp !== undefined ? `[${Math.floor(turn.timestamp)}s] ` : '';
+      return `${timestamp}${turn.transcript}`;
+    }).join('\n\n');
+
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `live-transcript-${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [turns]);
+
+  useEffect(() => {
+    return () => {
+      stopStreaming();
+    };
+  }, [stopStreaming]);
+
+  return (
+    <div className="border-t pt-4 mt-4">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <h3 className="text-lg font-semibold">Live Transcription</h3>
+          {status && (
+            <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+              {isStreaming && (
+                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+              )}
+              {status}
+            </span>
+          )}
+        </div>
+        <div className="flex gap-2">
+          {turns.length > 0 && (
+            <button
+              onClick={downloadTranscript}
+              className="px-2.5 py-1 text-xs border border-border rounded hover:bg-muted"
+            >
+              Download
+            </button>
+          )}
+          <button
+            onClick={isStreaming ? stopStreaming : startStreaming}
+            disabled={!player}
+            className={`px-3 py-1.5 text-sm rounded disabled:opacity-50 ${
+              isStreaming 
+                ? 'bg-red-600 text-white hover:bg-red-700' 
+                : 'bg-primary text-primary-foreground hover:opacity-90'
+            }`}
+          >
+            {isStreaming ? 'Stop' : 'Start'}
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm mb-3">
+          {error}
+        </div>
+      )}
+
+      {isStreaming && (
+        <div className="space-y-3">
+          {turns.map((turn, i) => (
+            <div key={i} className="p-3 bg-muted rounded">
+              <div className="text-xs text-muted-foreground mb-1">
+                {turn.timestamp !== undefined && `[${Math.floor(turn.timestamp)}s]`}
+              </div>
+              <div className="text-sm">{turn.transcript}</div>
+            </div>
+          ))}
+          {currentTranscript && (
+            <div className="p-3 bg-muted/50 rounded border border-primary/30">
+              <div className="text-sm text-muted-foreground italic">{currentTranscript}</div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+

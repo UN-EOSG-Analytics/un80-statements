@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { VideoPlayer } from './video-player';
 import { TranscriptionPanel } from './transcription-panel';
+import { LiveTranscription } from './live-transcription';
 import type { Video, VideoMetadata } from '@/lib/un-api';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -15,6 +16,7 @@ interface VideoPageClientProps {
 
 export function VideoPageClient({ kalturaId, video, metadata }: VideoPageClientProps) {
   const [player, setPlayer] = useState<{ currentTime: number; play: () => void }>();
+  const isLive = video.status === 'live';
 
   return (
     <div className="flex gap-6 items-start">
@@ -139,7 +141,11 @@ export function VideoPageClient({ kalturaId, video, metadata }: VideoPageClientP
       </div>
 
       <div className="w-1/2 pt-8">
-        <TranscriptionPanel kalturaId={kalturaId} player={player} />
+        {isLive ? (
+          <LiveTranscription player={player} isLive={isLive} />
+        ) : (
+          <TranscriptionPanel kalturaId={kalturaId} player={player} />
+        )}
       </div>
     </div>
   );

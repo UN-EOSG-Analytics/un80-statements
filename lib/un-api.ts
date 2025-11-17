@@ -229,13 +229,16 @@ async function fetchVideosForDate(date: string): Promise<Video[]> {
     if (seen.has(assetId)) continue;
     seen.add(assetId);
     
+    // Check for live badge - this is more reliable than calculated status
+    const matchIndex = match.index!;
+    const contextWindow = html.substring(Math.max(0, matchIndex - 500), matchIndex + 1000);
+    const isLiveBadge = /<span class="badge[^"]*"[^>]*>Live<\/span>/i.test(contextWindow);
+    
     // Extract duration
     const durationPattern = new RegExp(`<span class="badge[^"]*">(\\d{2}:\\d{2}:\\d{2})<\\/span>[\\s\\S]{0,500}?href="\\/en\\/asset\\/${assetId.replace(/\//g, '\\/')}"`);
     const durationMatch = html.match(durationPattern);
     
     // Extract scheduled time by finding the closest preceding timezone div
-    // Look backwards from the current match position (use match.index from regex)
-    const matchIndex = match.index!;
     const precedingHtml = html.substring(Math.max(0, matchIndex - 3000), matchIndex);
     
     // Find all data-nid occurrences and take the last one (closest to our match)
@@ -250,7 +253,7 @@ async function fetchVideosForDate(date: string): Promise<Video[]> {
     const titleCleaned = cleanTitle(rawTitle, titleMetadata);
     
     const duration = durationMatch?.[1] || '00:00:00';
-    const status = calculateStatus(scheduledTime, duration);
+    const status = isLiveBadge ? 'live' : calculateStatus(scheduledTime, duration);
     
     videos.push({
       id: assetId,
