@@ -801,6 +801,15 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
                     >
                       Excel Table
                     </button>
+                    <button
+                      onClick={() => {
+                        window.open(`/json/${encodeURIComponent(video.id)}`, '_blank');
+                        setShowDownloadMenu(false);
+                      }}
+                      className="w-full px-3 py-2 text-xs text-left hover:bg-muted"
+                    >
+                      JSON API
+                    </button>
                   </div>
                 )}
               </div>
