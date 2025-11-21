@@ -2,7 +2,10 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { SpeakerInfo, SpeakerMapping } from '@/lib/speakers';
+import type { Video, VideoMetadata } from '@/lib/un-api';
 import { getCountryName } from '@/lib/country-lookup';
+import { ChevronDown } from 'lucide-react';
+import ExcelJS from 'exceljs';
 
 interface TranscriptionPanelProps {
   kalturaId: string;
@@ -10,6 +13,8 @@ interface TranscriptionPanelProps {
     currentTime: number;
     play: () => void;
   };
+  video: Video;
+  metadata: VideoMetadata;
 }
 
 interface Word {
@@ -34,7 +39,7 @@ interface SpeakerSegment {
 }
 
 
-export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProps) {
+export function TranscriptionPanel({ kalturaId, player, video, metadata }: TranscriptionPanelProps) {
   const [paragraphs, setParagraphs] = useState<Paragraph[] | null>(null);
   const [segments, setSegments] = useState<SpeakerSegment[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -48,9 +53,11 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
   const [speakerMappings, setSpeakerMappings] = useState<SpeakerMapping>({});
   const [identifyingSpeakers, setIdentifyingSpeakers] = useState(false);
   const [countryNames, setCountryNames] = useState<Map<string, string>>(new Map());
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
   const segmentRefs = useRef<(HTMLDivElement | null)[]>([]);
   const paragraphRefs = useRef<Map<string, HTMLParagraphElement>>(new Map());
   const wordRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
+  const downloadButtonRef = useRef<HTMLDivElement>(null);
 
   const formatTime = (seconds: number | null | undefined): string => {
     if (seconds === null || seconds === undefined || isNaN(seconds)) return '';
@@ -506,9 +513,82 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `transcript-${kalturaId}.rtf`;
+    const filename = `${video.cleanTitle.slice(0, 50).replace(/[^a-z0-9]/gi, '_')}_${video.date}.rtf`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
+    setShowDownloadMenu(false);
+  };
+
+  const downloadExcel = async () => {
+    if (!segments) return;
+    
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Transcript');
+    
+    // Define columns
+    worksheet.columns = [
+      { header: 'Date', key: 'date', width: 12 },
+      { header: 'Title', key: 'title', width: 40 },
+      { header: 'URL', key: 'url', width: 35 },
+      { header: 'Paragraph Number', key: 'paragraph_number', width: 15 },
+      { header: 'Speaker Affiliation', key: 'speaker_affiliation', width: 20 },
+      { header: 'Speaker Group', key: 'speaker_group', width: 20 },
+      { header: 'Function', key: 'function', width: 20 },
+      { header: 'Text', key: 'text', width: 60 },
+    ];
+    
+    // Style header row
+    const headerRow = worksheet.getRow(1);
+    headerRow.font = { bold: true };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFD9D9D9' }
+    };
+    headerRow.alignment = { vertical: 'middle', horizontal: 'left' };
+    
+    // Freeze header row
+    worksheet.views = [
+      { state: 'frozen', ySplit: 1 }
+    ];
+    
+    // Add data
+    let paragraphNumber = 1;
+    segments.forEach(segment => {
+      segment.paragraphs.forEach((para, paraIndex) => {
+        const globalParaIndex = segment.paragraphIndices?.[paraIndex];
+        const info = globalParaIndex !== undefined ? speakerMappings[globalParaIndex.toString()] : undefined;
+        
+        const row = worksheet.addRow({
+          date: video.date,
+          title: video.cleanTitle,
+          url: video.url,
+          paragraph_number: paragraphNumber++,
+          speaker_affiliation: info?.affiliation ? (countryNames.get(info.affiliation) || info.affiliation) : '',
+          speaker_group: info?.group || '',
+          function: info?.function || '',
+          text: para.text,
+        });
+        
+        // Wrap text in all cells
+        row.eachCell((cell) => {
+          cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+        });
+      });
+    });
+    
+    // Generate buffer and download
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const filename = `${video.cleanTitle.slice(0, 50).replace(/[^a-z0-9]/gi, '_')}_${video.date}.xlsx`;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    setShowDownloadMenu(false);
   };
 
   // Check for cached transcript on mount
@@ -660,6 +740,20 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
     }
   }, [activeSegmentIndex, activeParagraphIndex]);
 
+  // Handle click outside dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (downloadButtonRef.current && !downloadButtonRef.current.contains(event.target as Node)) {
+        setShowDownloadMenu(false);
+      }
+    };
+    
+    if (showDownloadMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showDownloadMenu]);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -683,12 +777,31 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
               >
                 Retranscribe
               </button>
-              <button
-                onClick={downloadDocx}
-                className="px-2.5 py-1 text-xs border border-border rounded hover:bg-muted"
-              >
-                Download
-              </button>
+              <div className="relative" ref={downloadButtonRef}>
+                <button
+                  onClick={() => setShowDownloadMenu(!showDownloadMenu)}
+                  className="px-2.5 py-1 text-xs border border-border rounded hover:bg-muted flex items-center gap-1"
+                >
+                  Download
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+                {showDownloadMenu && (
+                  <div className="absolute right-0 mt-1 w-40 bg-background border border-border rounded shadow-lg z-10">
+                    <button
+                      onClick={downloadDocx}
+                      className="w-full px-3 py-2 text-xs text-left hover:bg-muted"
+                    >
+                      RTF Document
+                    </button>
+                    <button
+                      onClick={downloadExcel}
+                      className="w-full px-3 py-2 text-xs text-left hover:bg-muted"
+                    >
+                      Excel Table
+                    </button>
+                  </div>
+                )}
+              </div>
             </>
           )}
         </div>

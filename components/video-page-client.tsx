@@ -157,7 +157,7 @@ export function VideoPageClient({ kalturaId, video, metadata }: VideoPageClientP
         {isLive ? (
           <LiveTranscription player={player} isLive={isLive} kalturaId={kalturaId} />
         ) : (
-          <TranscriptionPanel kalturaId={kalturaId} player={player} />
+          <TranscriptionPanel kalturaId={kalturaId} player={player} video={video} metadata={metadata} />
         )}
         </div>
       </div>
