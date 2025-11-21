@@ -19,9 +19,9 @@ export function VideoPageClient({ kalturaId, video, metadata }: VideoPageClientP
   const isLive = video.status === 'live';
 
   return (
-    <div className="flex gap-6 items-start">
-      <div className="w-1/2">
-        <div className="sticky top-0 pt-8">
+    <div className="flex gap-6 h-full overflow-hidden">
+      <div className="w-1/2 h-full overflow-y-auto">
+        <div className="pt-8 pb-8 pr-4">
           <Link href="/" className="inline-flex items-center gap-2 mb-6 hover:opacity-80">
             <Image
               src="/images/UN Logo_Horizontal_English/Colour/UN Logo_Horizontal_Colour_English.svg"
@@ -152,12 +152,14 @@ export function VideoPageClient({ kalturaId, video, metadata }: VideoPageClientP
         </div>
       </div>
 
-      <div className="w-1/2 pt-8">
+      <div className="w-1/2 h-full overflow-y-auto">
+        <div className="pt-8 pb-8 pl-4">
         {isLive ? (
           <LiveTranscription player={player} isLive={isLive} kalturaId={kalturaId} />
         ) : (
           <TranscriptionPanel kalturaId={kalturaId} player={player} />
         )}
+        </div>
       </div>
     </div>
   );

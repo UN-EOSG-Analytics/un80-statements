@@ -30,10 +30,12 @@ interface SpeakerSegment {
   speaker: string;
   paragraphs: Paragraph[];
   timestamp: number;
+  paragraphIndices?: number[]; // Track original paragraph indices for speaker lookup
 }
 
 
 export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProps) {
+  const [paragraphs, setParagraphs] = useState<Paragraph[] | null>(null);
   const [segments, setSegments] = useState<SpeakerSegment[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,64 +64,84 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const cleanSpeakerId = (speakerId: string): string => {
-    // AssemblyAI uses single letters (A, B, C), just return as-is
-    return speakerId.toUpperCase();
-  };
-
-  const getSpeakerName = (speakerId: string): string => {
-    const cleanId = cleanSpeakerId(speakerId);
-    const info = speakerMappings[cleanId];
+  const getSpeakerText = (paragraphIndex: number | undefined): string => {
+    if (paragraphIndex === undefined) {
+      return 'Speaker';
+    }
     
-    if (!info) {
-      return `Speaker ${cleanId}`;
+    const info = speakerMappings[paragraphIndex.toString()];
+    
+    if (!info || (!info.affiliation && !info.group && !info.function && !info.name)) {
+      return `Speaker ${paragraphIndex + 1}`;
     }
     
     const parts: string[] = [];
     
-    // Affiliation first (with country name if available)
     if (info.affiliation) {
-      const countryName = countryNames.get(info.affiliation);
-      if (countryName) {
-        parts.push(`[${countryName}]`);
-      } else {
-        parts.push(`[${info.affiliation}]`);
-      }
+      parts.push(countryNames.get(info.affiliation) || info.affiliation);
     }
     
-    // Group second
     if (info.group) {
-      parts.push(`{${info.group}}`);
+      parts.push(info.group);
     }
     
-    // Function third
-    if (info.function) {
+    // Skip "Representative" as it's not very informative
+    if (info.function && info.function.toLowerCase() !== 'representative') {
       parts.push(info.function);
     }
     
-    // Name last (will be styled differently)
     if (info.name) {
-      parts.push(`— ${info.name}`);
+      parts.push(info.name);
     }
     
-    return parts.length > 0 ? parts.join(' ') : `Speaker ${cleanId}`;
+    return parts.join(' · ');
   };
 
-  const getSpeakerColor = (speakerId: string): string => {
-    const colors = [
-      'text-blue-600 dark:text-blue-400',
-      'text-green-600 dark:text-green-400',
-      'text-purple-600 dark:text-purple-400',
-      'text-orange-600 dark:text-orange-400',
-      'text-pink-600 dark:text-pink-400',
-      'text-teal-600 dark:text-teal-400',
-      'text-red-600 dark:text-red-400',
-      'text-indigo-600 dark:text-indigo-400',
-    ];
+  const renderSpeakerInfo = (paragraphIndex: number | undefined) => {
+    if (paragraphIndex === undefined) {
+      return <span>Speaker</span>;
+    }
     
-    const hash = speakerId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    return colors[hash % colors.length];
+    const info = speakerMappings[paragraphIndex.toString()];
+    
+    if (!info || (!info.affiliation && !info.group && !info.function && !info.name)) {
+      return <span>Speaker {paragraphIndex + 1}</span>;
+    }
+    
+    return (
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {/* Affiliation badge */}
+        {info.affiliation && (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+            {countryNames.get(info.affiliation) || info.affiliation}
+          </span>
+        )}
+        
+        {/* Group badge */}
+        {info.group && (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
+            {info.group}
+          </span>
+        )}
+        
+        {/* Function (skip if just "Representative") */}
+        {info.function && info.function.toLowerCase() !== 'representative' && (
+          <span className="text-sm font-medium text-muted-foreground">
+            {info.function}
+          </span>
+        )}
+        
+        {/* Name */}
+        {info.name && (
+          <span className="text-sm font-semibold">
+            {info.name}
+          </span>
+        )}
+      </div>
+    );
   };
+
+  const speakerHeaderClass = 'text-sm font-semibold tracking-wide text-foreground';
 
   const seekToTimestamp = (timestamp: number) => {
     if (!player) {
@@ -227,6 +249,63 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
     setCountryNames(names);
   }, []);
 
+  // Group paragraphs by OpenAI-identified speaker (using paragraph-level mapping)
+  const groupParagraphsBySpeaker = useCallback((paragraphsData: Paragraph[], mappings: SpeakerMapping): SpeakerSegment[] => {
+    const segments: SpeakerSegment[] = [];
+    
+    if (paragraphsData.length === 0) return segments;
+    
+    let currentSegment: SpeakerSegment | null = null;
+    
+    paragraphsData.forEach((para, index) => {
+      const speakerInfo = mappings[index.toString()];
+      const speakerId = JSON.stringify(speakerInfo || {}); // Use stringified info as unique ID
+      
+      // Convert timestamp from ms to seconds
+      const paraWithSeconds = {
+        ...para,
+        start: para.start / 1000,
+        end: para.end / 1000,
+        words: para.words.map(w => ({
+          ...w,
+          start: w.start / 1000,
+          end: w.end / 1000,
+        })),
+      };
+      
+      if (!currentSegment || currentSegment.speaker !== speakerId) {
+        // Start a new segment
+        if (currentSegment) {
+          segments.push(currentSegment);
+        }
+        currentSegment = {
+          speaker: speakerId,
+          paragraphs: [paraWithSeconds],
+          timestamp: paraWithSeconds.start,
+          paragraphIndices: [index],
+        };
+      } else {
+        // Add to current segment
+        currentSegment.paragraphs.push(paraWithSeconds);
+        currentSegment.paragraphIndices?.push(index);
+      }
+    });
+    
+    // Add final segment
+    if (currentSegment) {
+      segments.push(currentSegment);
+    }
+    
+    return segments;
+  }, []);
+
+  // Regenerate segments when speaker mappings change
+  useEffect(() => {
+    if (paragraphs && Object.keys(speakerMappings).length > 0) {
+      setSegments(groupParagraphsBySpeaker(paragraphs, speakerMappings));
+    }
+  }, [paragraphs, speakerMappings, groupParagraphsBySpeaker]);
+
   const formatParagraphs = useCallback((paragraphsData: Paragraph[]): SpeakerSegment[] => {
     // Flatten all words from paragraphs and convert timestamps
     const allWords = paragraphsData.flatMap(para => 
@@ -320,10 +399,31 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
       
       // If cached/completed transcript with paragraphs
       if (data.paragraphs && data.paragraphs.length > 0) {
+        setParagraphs(data.paragraphs);
         setSegments(formatParagraphs(data.paragraphs));
         setCached(data.cached || false);
         
-        // Identify speakers after setting segments
+        // Load speaker mappings if cached
+        if (data.cached && data.transcriptId) {
+          try {
+            const speakerResponse = await fetch('/api/get-speaker-mapping', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ transcriptId: data.transcriptId }),
+            });
+            if (speakerResponse.ok) {
+              const speakerData = await speakerResponse.json();
+              if (speakerData.mapping) {
+                setSpeakerMappings(speakerData.mapping);
+                await loadCountryNames(speakerData.mapping);
+              }
+            }
+          } catch (err) {
+            console.log('Failed to load speaker mappings:', err);
+          }
+        }
+        
+        // Identify speakers for new transcripts
         if (!data.cached) {
           identifySpeakers(data.paragraphs, data.transcriptId);
         }
@@ -353,6 +453,7 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
           
           if (pollData.status === 'completed' && pollData.paragraphs) {
             console.log('Transcription completed');
+            setParagraphs(pollData.paragraphs);
             setSegments(formatParagraphs(pollData.paragraphs));
             setCached(false);
             
@@ -388,7 +489,8 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
     // Simple RTF format (opens in Word)
     let rtf = '{\\rtf1\\ansi\\deff0\n';
     segments.forEach(segment => {
-      rtf += `{\\b Speaker ${cleanSpeakerId(segment.speaker)}`;
+      const firstParaIndex = segment.paragraphIndices?.[0] ?? 0;
+      rtf += `{\\b ${getSpeakerText(firstParaIndex)}`;
       if (segment.timestamp !== null) {
         rtf += ` [${formatTime(segment.timestamp)}]`;
       }
@@ -422,6 +524,7 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
         if (response.ok) {
           const data = await response.json();
           if (data.cached && data.paragraphs && data.paragraphs.length > 0) {
+            setParagraphs(data.paragraphs);
             setSegments(formatParagraphs(data.paragraphs));
             setCached(true);
             
@@ -627,15 +730,16 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
           )}
           {segments.map((segment, segmentIndex) => {
             const isSegmentActive = segmentIndex === activeSegmentIndex;
+            const firstParagraphIndex = segment.paragraphIndices?.[0] ?? 0;
             return (
               <div 
                 key={segmentIndex} 
-                className="space-y-2"
+                className="space-y-2 pt-3"
                 ref={(el) => { segmentRefs.current[segmentIndex] = el; }}
               >
-                <div className="flex items-center gap-2">
-                  <div className={`text-sm font-semibold tracking-wide ${getSpeakerColor(segment.speaker)}`}>
-                    {getSpeakerName(segment.speaker)}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className={speakerHeaderClass}>
+                    {renderSpeakerInfo(firstParagraphIndex)}
                   </div>
                   <button
                     onClick={() => seekToTimestamp(segment.timestamp)}

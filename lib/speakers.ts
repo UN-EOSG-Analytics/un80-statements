@@ -7,6 +7,7 @@ export interface SpeakerInfo {
   group: string | null;
 }
 
+// Maps paragraph index (as string) to speaker info
 export type SpeakerMapping = Record<string, SpeakerInfo>;
 
 export async function getSpeakerMapping(transcriptId: string): Promise<SpeakerMapping | null> {

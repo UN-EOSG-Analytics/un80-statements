@@ -5,10 +5,10 @@ import { z } from 'zod';
 import { setSpeakerMapping } from '@/lib/speakers';
 import '@/lib/load-env';
 
-const SpeakerMapping = z.object({
-  speakers: z.array(z.object({
-    label: z.string().describe('The speaker label (e.g., "A", "B", "C")'),
-    name: z.string().nullable().describe(''),
+const ParagraphSpeakerMapping = z.object({
+  paragraphs: z.array(z.object({
+    index: z.number().describe('The paragraph index (0-based)'),
+    name: z.string().nullable(),
     function: z.string().nullable(),
     affiliation: z.string().nullable(),
     group: z.string().nullable()
@@ -23,30 +23,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No paragraphs provided' }, { status: 400 });
     }
 
-    // Extract unique speakers and build full transcript
-    const speakers = new Set<string>();
+    // Build numbered transcript with each paragraph indexed and AssemblyAI speaker labels
     const transcriptParts: string[] = [];
     
-    paragraphs.forEach((para: { words: Array<{ speaker?: string; text: string }> }) => {
-      const firstWord = para.words?.[0];
-      if (firstWord?.speaker) {
-        speakers.add(firstWord.speaker);
-      }
+    paragraphs.forEach((para: { words: Array<{ speaker?: string; text: string }> }, index: number) => {
       const text = para.words.map(w => w.text).join(' ');
-      transcriptParts.push(`[Speaker ${firstWord?.speaker || 'Unknown'}]: ${text}`);
+      const assemblyAISpeaker = para.words?.[0]?.speaker || 'Unknown';
+      transcriptParts.push(`[${index}] (AssemblyAI: Speaker ${assemblyAISpeaker}) ${text}`);
     });
 
     const fullTranscript = transcriptParts.join('\n\n');
-    const speakerList = Array.from(speakers).sort().join(', ');
 
     const API_VERSION = '2025-01-01-preview'
 
     // Initialize Azure OpenAI client
-    console.log('Azure OpenAI config:', {
-      hasApiKey: !!process.env.AZURE_OPENAI_API_KEY,
-      endpoint: process.env.AZURE_OPENAI_ENDPOINT,
-      apiVersion: API_VERSION,
-    });
+    // console.log('Azure OpenAI config:', {
+    //   hasApiKey: !!process.env.AZURE_OPENAI_API_KEY,
+    //   endpoint: process.env.AZURE_OPENAI_ENDPOINT,
+    //   apiVersion: API_VERSION,
+    // });
     
     const client = new AzureOpenAI({
       apiKey: process.env.AZURE_OPENAI_API_KEY,
@@ -55,67 +50,94 @@ export async function POST(request: NextRequest) {
     });
 
     const completion = await client.chat.completions.create({
-      model: 'gpt-5-mini',
+      model: 'gpt-5',
       messages: [
       {
         role: 'system',
-        content: `You are an expert at identifying speakers in UN proceedings. Extract names, functions/titles, affiliation codes, and country-group information strictly from the transcript text.
+        content: `You are an expert at identifying speakers in UN proceedings. For each paragraph in the transcript, extract the speaker's name, function/title, affiliation, and country-group information strictly from the context.
 
-RULES:
-- Look for explicit introductions (e.g., "I invite... Mr. X", "I give the floor to...")
-- Track "Thank you" statements that reference previous speakers
+CRITICAL: Identify WHO IS ACTUALLY SPEAKING each paragraph, NOT who is being introduced or mentioned.
+
+TASK:
+- Each paragraph is numbered [0], [1], [2], etc.
+- Each paragraph has an AssemblyAI speaker label (A, B, C, etc.) - these are HINTS from automatic diarization
+- WARNING: AssemblyAI labels may be incorrect or inconsistent - use them as hints, not facts
+- For each paragraph, identify the ACTUAL SPEAKER (person saying those words) based on the text content
+- IMPORTANT: If a paragraph contains "I invite X" or "X has the floor", the speaker is the person doing the inviting/giving the floor (usually the Chair), NOT X
+- X will speak in SUBSEQUENT paragraphs
+- When a speaker continues across multiple paragraphs, repeat their information
+
+CRITICAL REQUIREMENT:
+- You MUST process and return speaker information for EVERY SINGLE paragraph in the transcript
+- Do not stop early - process all paragraphs from [0] to the last one
+- You are a powerful model (gpt-5) with large context capacity - this task is well within your capabilities
+- Even if the transcript is long, you must complete the full analysis
+- Skipping paragraphs is not acceptable - the output must include all paragraph indices
+IDENTIFICATION RULES:
+- Look for "Thank you [name]" to identify when a new speaker starts (thanking the previous one)
+- Use AssemblyAI labels as HINTS for speaker changes (label change often = new speaker), but verify with text
+- AssemblyAI may incorrectly group different speakers under same label, or split one speaker across labels
 - Extract both personal names AND official functions when available
 - For country representatives, provide ISO 3166-1 alpha-3 country codes (e.g., PRY, USA, CHN)
-- For UN bodies/agencies, use standard abbreviations (e.g., ACABQ, UNICEF, UNDP, OHCHR)
+- For UN bodies/agencies, use standard abbreviations (e.g., ACABQ, UNICEF, UNDP, OHCHR, 5th Committee)
 - If a representative is speaking on behalf of a group (e.g., G77, EU), capture that group code
-- If identity cannot be determined, return null for name/function/affiliation/group
+- If identity cannot be determined, return all null values
+- Only use information literally in the text (no world knowledge)
+- Fix transcription errors: "UN80 Initiative" (not "UNAT", "UNA", "UNAT Initiative", etc.)
 
 SCHEMA DEFINITIONS:
 
-name: Person name as best as can be identified from text. Do not use your world knowledge to guess the name, only use what is literally in the text. Fixing spelling/transcription errors is fine. Depending on what is in the text, this may be a given name, a surname, or ideally a full name. When it is only a surname, and when the gender is explicitly known, add a "Mr." or "Ms.". Do not otherwise add "Mr."/"Ms.". E.g., "Yassin Hamazoui", "Mr. Hamasu", "Dave".  Use null if unknown.
+name: Person name as best as can be identified from the text. Do NOT use world knowledge. Only use what is literally stated. Fix transcription errors. May be given name, surname, or full name. Add "Mr."/"Ms." only if surname-only AND gender explicitly known. E.g., "Yacine Hamzaoui", "Mr. Hamasu", "Dave". Use null if unknown.
 
-function: Function/title of the person. This should be concise and use canonical abbreviations if available. E.g. "SG", "PGA", "Chair", [Permanent/...] "Representative", "Spokesperson", "USG Policy". Use null if unknown.
+function: Function/title. Be concise, use canonical abbreviations. E.g. "SG", "PGA", "Chair", "Representative", "Vice-Chair", "Officer", "Spokesperson", "USG Policy". Use null if unknown.
 
-affiliation: For country representatives, use ISO 3166-1 alpha-3 country codes of their country, e.g. "PRY", "KEN". For organizations use the canonical abbreviation of the organization, e.g. "OECD", "OHCHR", "UN Secretariat", "GA". Use null if unknown/not applicable.
+affiliation: For country representatives, use ISO 3166-1 alpha-3 country codes of their country, e.g. "PRY", "KEN". For organizations use the canonical abbreviation of the organization, e.g. "OECD", "OHCHR", "UN Secretariat", "GA", "5th Committee", "UN80 Initiative". Use null if unknown/not applicable.
 
 group: If applicable, group of countries that a country representative is speaking on behalf of. Use the canonical abbreviation, e.g. "G77", "EU", "AU". Use null if not applicable.
 
 EXAMPLES:
-✓ "I invite Mr. Yassin Hamazoui to introduce the report"
-  → name: "Yassin Hamazoui", function: null, affiliation: null, group: null
 
-✓ "The Chair of the Fifth Committee"
-  → name: null, function: "Chair", affiliation: "5h Committee", group: null
+✓ "[0] (AssemblyAI: Speaker A) I call to order the 8th meeting. I invite Mr. Yacine Hamzaoui to introduce the report."
+  → index: 0, name: null, function: "Chair", affiliation: "5th Committee", group: null
+  REASON: The CHAIR is speaking (saying "I invite"), even though Hamazoui is mentioned
 
-✓ "Mr. Carlo Iacobucci, Vice Chair of ACABQ"
-  → name: "Carlo Iacobucci", function: "Vice‑Chair", affiliation: "ACABQ", group: null
+✓ "[1] (AssemblyAI: Speaker B) Thank you, Madam Chair. I have the pleasure to introduce the Secretary-General's report..."
+  → index: 1, name: "Yacine Hamzaoui", function: "Officer", affiliation: "OPPFB", group: null
+  REASON: Hamazoui is NOW speaking (indicated by "Thank you, Madam Chair"). AssemblyAI correctly detected speaker change.
 
-✓ "The permanent representative of Germany has the floor"
-  → name: null, function: "Representative", affiliation: "DEU", group: null
+✓ "[2] (AssemblyAI: Speaker B) The legal expenses will be funded from the regular budget."
+  → index: 2, name: "Yacine Hamzaoui", function: "Officer", affiliation: "OPPFB", group: null
+  REASON: Same speaker continues (no handoff signal). AssemblyAI label B matches previous paragraph.
 
-✓ "Mr. Laureano Bentancourt of Uruguay"
-  → name: "Laureano Bentancourt", function: "Representative", affiliation: "URY", group: null
+✓ "[3] (AssemblyAI: Speaker A) I thank Mr. Hamazoui. I now invite the Vice Chair of ACABQ, Mr. Carlo Iacobucci."
+  → index: 3, name: null, function: "Chair", affiliation: "5th Committee", group: null
+  REASON: The CHAIR is speaking (saying "I thank" and "I invite"), NOT Iacobucci. Back to speaker A.
 
-✓ "Yes, Carlo?"
-  → name: "Carlo", function: null, affiliation: null, group: null
+✓ "[4] (AssemblyAI: Speaker C) Madam Chair, I am pleased to introduce the Advisory Committee's report..."
+  → index: 4, name: "Carlo Iacobucci", function: "Vice-Chair", affiliation: "ACABQ", group: null
+  REASON: Iacobucci is NOW speaking (addressing "Madam Chair"). New speaker detected.
 
-✓ "The distinct representative of Iraq!" ... "I am speaking on behalf of the group of seventyseven and China"
-  → name: null, function: "Representative", affiliation: "IRQ", group: "G77"
+✓ "[5] (AssemblyAI: Speaker A) The permanent representative of Germany has the floor."
+  → index: 5, name: null, function: "Chair", affiliation: "5th Committee", group: null
+  REASON: The CHAIR is speaking (giving the floor), NOT Germany yet. Back to speaker A.
 
-✓ "I invite the officer in charge of the Program Planning and Budget Division of the Office of Program Planning, Finance and Budget, Mr. Yassin Hamazoui, to introduce the 23rd Annual Progress Report of the Secretary General"
-  → name: "Yassin Hamazoui", function: "Officer", affiliation: "OPPFB", group: null
+✓ "[6] (AssemblyAI: Speaker D) Thank you. Germany supports this proposal. I speak on behalf of the European Union."
+  → index: 6, name: null, function: "Representative", affiliation: "DEU", group: "EU"
+  REASON: German representative is NOW speaking. AssemblyAI detected new speaker.
 
 `
       },
       {
         role: 'user',
-        content: `Analyze the following UN transcript and identify speakers (${speakerList}).
+        content: `Analyze the following UN transcript and identify the speaker for each numbered paragraph.
+
+IMPORTANT: There are ${paragraphs.length} paragraphs total (numbered [0] to [${paragraphs.length - 1}]). You must provide speaker information for ALL ${paragraphs.length} paragraphs. Do not stop early.
 
 Transcript:
 ${fullTranscript.substring(0, 50000)}`
       }
       ],
-      response_format: zodResponseFormat(SpeakerMapping, 'speaker_mapping')
+      response_format: zodResponseFormat(ParagraphSpeakerMapping, 'paragraph_speaker_mapping')
     });
 
     const result = completion.choices[0]?.message?.content;
@@ -125,20 +147,24 @@ ${fullTranscript.substring(0, 50000)}`
     }
 
     // Parse the JSON response
-    const parsed = JSON.parse(result) as z.infer<typeof SpeakerMapping>;
+    const parsed = JSON.parse(result) as z.infer<typeof ParagraphSpeakerMapping>;
     
-    // Create structured mapping object
+    // Create structured mapping array indexed by paragraph
     const mapping: Record<string, { name: string | null; function: string | null; affiliation: string | null; group: string | null }> = {};
-    parsed.speakers.forEach((speaker) => {
-      mapping[speaker.label] = {
-        name: speaker.name,
-        function: speaker.function,
-        affiliation: speaker.affiliation,
-        group: speaker.group,
+    parsed.paragraphs.forEach((para) => {
+      mapping[para.index.toString()] = {
+        name: para.name,
+        function: para.function,
+        affiliation: para.affiliation,
+        group: para.group,
       };
     });
 
-    console.log('Speaker mapping identified:', mapping);
+    console.log(`Speaker identification complete: Processed ${parsed.paragraphs.length}/${paragraphs.length} paragraphs`);
+    
+    if (parsed.paragraphs.length < paragraphs.length) {
+      console.warn(`WARNING: OpenAI only processed ${parsed.paragraphs.length} out of ${paragraphs.length} paragraphs!`);
+    }
 
     // Store mapping if transcriptId provided
     if (transcriptId) {
