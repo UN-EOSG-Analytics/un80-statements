@@ -66,13 +66,8 @@ TASK:
 - IMPORTANT: If a paragraph contains "I invite X" or "X has the floor", the speaker is the person doing the inviting/giving the floor (usually the Chair), NOT X
 - X will speak in SUBSEQUENT paragraphs
 - When a speaker continues across multiple paragraphs, repeat their information
+- Process EVERY paragraph from [0] to [last]. Never stop early.
 
-CRITICAL REQUIREMENT:
-- You MUST process and return speaker information for EVERY SINGLE paragraph in the transcript
-- Do not stop early - process all paragraphs from [0] to the last one
-- You are a powerful model (gpt-5) with large context capacity - this task is well within your capabilities
-- Even if the transcript is long, you must complete the full analysis
-- Skipping paragraphs is not acceptable - the output must include all paragraph indices
 IDENTIFICATION RULES:
 - Look for "Thank you [name]" to identify when a new speaker starts (thanking the previous one)
 - Use AssemblyAI labels as HINTS for speaker changes (label change often = new speaker), but verify with text
@@ -131,10 +126,8 @@ EXAMPLES:
         role: 'user',
         content: `Analyze the following UN transcript and identify the speaker for each numbered paragraph.
 
-IMPORTANT: There are ${paragraphs.length} paragraphs total (numbered [0] to [${paragraphs.length - 1}]). You must provide speaker information for ALL ${paragraphs.length} paragraphs. Do not stop early.
-
 Transcript:
-${fullTranscript.substring(0, 50000)}`
+${fullTranscript}`
       }
       ],
       response_format: zodResponseFormat(ParagraphSpeakerMapping, 'paragraph_speaker_mapping')
