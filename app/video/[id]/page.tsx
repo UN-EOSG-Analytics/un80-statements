@@ -2,6 +2,7 @@ import { getScheduleVideos, getVideoMetadata } from '@/lib/un-api';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { VideoPageClient } from '@/components/video-page-client';
+import { scheduleLookbackDays } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,7 +41,7 @@ function extractKalturaId(assetId: string): string | null {
 export default async function VideoPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const decodedId = decodeURIComponent(id);
-  const videos = await getScheduleVideos(90);
+  const videos = await getScheduleVideos(scheduleLookbackDays);
   const video = videos.find(v => v.id === decodedId);
 
   if (!video) {

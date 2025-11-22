@@ -3,6 +3,7 @@ import { getScheduleVideos, getVideoMetadata } from '@/lib/un-api';
 import { getTranscript } from '@/lib/turso';
 import { getSpeakerMapping, SpeakerInfo } from '@/lib/speakers';
 import { getCountryName } from '@/lib/country-lookup';
+import { scheduleLookbackDays } from '@/lib/config';
 
 interface AssemblyAIParagraph {
   text: string;
@@ -49,7 +50,7 @@ export async function GET(
     const decodedId = decodeURIComponent(id);
     
     // Get video info
-    const videos = await getScheduleVideos(90);
+    const videos = await getScheduleVideos(scheduleLookbackDays);
     const video = videos.find(v => v.id === decodedId);
 
     if (!video) {

@@ -2,11 +2,12 @@ import { Suspense } from 'react';
 import { getScheduleVideos } from '@/lib/un-api';
 import { VideoTable } from '@/components/video-table';
 import Image from 'next/image';
+import { scheduleLookbackDays } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
 
 export default async function Home() {
-    const videos = await getScheduleVideos(90); // Fetch last 90 days
+    const videos = await getScheduleVideos(scheduleLookbackDays);
 
     return (
         <main className="min-h-screen bg-background px-4 sm:px-6">
@@ -24,7 +25,7 @@ export default async function Home() {
                         UN Web TV 2.0
                     </h1>
                     <p className="text-muted-foreground">
-                        {videos.length} videos from the past 90 days
+                        {videos.length} videos from the past {scheduleLookbackDays} days
                     </p>
                 </header>
 

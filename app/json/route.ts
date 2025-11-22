@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getScheduleVideos } from '@/lib/un-api';
+import { scheduleLookbackDays } from '@/lib/config';
 
 export async function GET() {
   try {
-    const videos = await getScheduleVideos(90);
+    const videos = await getScheduleVideos(scheduleLookbackDays);
     
     // Filter to only videos with transcripts
     const videosWithTranscripts = videos.filter(v => v.hasTranscript);
