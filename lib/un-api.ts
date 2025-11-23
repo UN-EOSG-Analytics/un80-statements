@@ -1,18 +1,4 @@
-function extractKalturaId(assetId: string): string | null {
-  // Handle formats like k1a/k1a7f1gn3l → 1_a7f1gn3l
-  const kMatch = assetId.match(/k1([a-z0-9])\/k1([a-z0-9]+)/i);
-  if (kMatch) {
-    return `1_${kMatch[2]}`;
-  }
-  
-  // Handle format like k12/k1251fzd6n → 1_251fzd6n
-  const k12Match = assetId.match(/k1(\d+)\/k1(.+)/i);
-  if (k12Match) {
-    return `1_${k12Match[2]}`;
-  }
-  
-  return null;
-}
+import { extractKalturaId } from './kaltura';
 
 export interface Video {
   id: string;

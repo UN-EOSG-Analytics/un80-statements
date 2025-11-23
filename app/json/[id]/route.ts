@@ -4,6 +4,7 @@ import { getTranscript } from '@/lib/turso';
 import { getSpeakerMapping, SpeakerInfo } from '@/lib/speakers';
 import { getCountryName } from '@/lib/country-lookup';
 import { scheduleLookbackDays } from '@/lib/config';
+import { extractKalturaId } from '@/lib/kaltura';
 
 interface AssemblyAIParagraph {
   text: string;
@@ -15,30 +16,6 @@ interface AssemblyAIParagraph {
     end: number;
     confidence: number;
   }>;
-}
-
-function extractKalturaId(assetId: string): string | null {
-  let match = assetId.match(/\(([^)]+)\)/);
-  if (match) return match[1];
-  
-  match = assetId.match(/\/id\/([^/]+)/);
-  if (match) return match[1];
-  
-  if (assetId.match(/^1_[a-z0-9]+$/i)) {
-    return assetId;
-  }
-  
-  match = assetId.match(/\/k1(\w+)$/);
-  if (match) {
-    return `1_${match[1]}`;
-  }
-  
-  match = assetId.match(/^k1(\w+)$/);
-  if (match) {
-    return `1_${match[1]}`;
-  }
-  
-  return null;
 }
 
 export async function GET(

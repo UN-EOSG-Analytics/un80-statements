@@ -3,40 +3,9 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { VideoPageClient } from '@/components/video-page-client';
 import { scheduleLookbackDays } from '@/lib/config';
+import { extractKalturaId } from '@/lib/kaltura';
 
 export const dynamic = 'force-dynamic';
-
-function extractKalturaId(assetId: string): string | null {
-  // Try different patterns to extract Kaltura entry ID
-  
-  // Pattern 1: ID in parentheses - e.g., "something(1_abc123)"
-  let match = assetId.match(/\(([^)]+)\)/);
-  if (match) return match[1];
-  
-  // Pattern 2: ID in /id/ path - e.g., "something/id/1_abc123"
-  match = assetId.match(/\/id\/([^/]+)/);
-  if (match) return match[1];
-  
-  // Pattern 3: Check if it's already a Kaltura ID format (1_xxxxxx)
-  if (assetId.match(/^1_[a-z0-9]+$/i)) {
-    return assetId;
-  }
-  
-  // Pattern 4: UN format like "k1a/k1a7f1gn3l" -> convert to "1_a7f1gn3l"
-  // Simply extract everything after "/k1" and prepend "1_"
-  match = assetId.match(/\/k1(\w+)$/);
-  if (match) {
-    return `1_${match[1]}`;
-  }
-  
-  // Pattern 5: Just "k1a7f1gn3l" -> convert to "1_a7f1gn3l"
-  match = assetId.match(/^k1(\w+)$/);
-  if (match) {
-    return `1_${match[1]}`;
-  }
-  
-  return null;
-}
 
 export default async function VideoPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
