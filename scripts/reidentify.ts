@@ -127,9 +127,10 @@ async function run() {
     ? ['*ALL*']
     : await loadTargets(rawArg);
 
+  console.log(`Loading transcripts...`);
   const allTranscripts = (await Promise.all(targets.map(loadTranscripts))).flat();
   
-  const tasks = allTranscripts
+  const toProcess = allTranscripts
     .map(row => ({ row, paragraphs: parseParagraphs(row) }))
     .filter(({ row, paragraphs }) => {
       if (!paragraphs.length) {
@@ -137,14 +138,20 @@ async function run() {
         return false;
       }
       return true;
-    })
-    .map(async ({ row, paragraphs }) => {
-      await identifySpeakers(paragraphs, row.transcript_id);
-      console.log(`✓ Re-identified ${row.entry_id} (${row.transcript_id})`);
     });
 
+  const total = toProcess.length;
+  console.log(`Processing ${total} transcript(s)...\n`);
+
+  let completed = 0;
+  const tasks = toProcess.map(async ({ row, paragraphs }) => {
+    await identifySpeakers(paragraphs, row.transcript_id, row.entry_id);
+    completed++;
+    console.log(`[${completed}/${total}] ✓ Re-identified ${row.entry_id} (${row.transcript_id})`);
+  });
+
   await Promise.all(tasks);
-  console.log(`Done. Updated ${tasks.length} transcript(s).`);
+  console.log(`\nDone. Updated ${total} transcript(s).`);
   process.exit(0);
 }
 

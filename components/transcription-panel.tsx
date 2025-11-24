@@ -238,7 +238,7 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
       const response = await fetch('/api/identify-speakers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paragraphs: paragraphsData, transcriptId }),
+        body: JSON.stringify({ paragraphs: paragraphsData, transcriptId, entryId: kalturaId }),
       });
       
       if (response.ok) {
@@ -254,7 +254,7 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
     } finally {
       setIdentifyingSpeakers(false);
     }
-  }, [loadCountryNames]);
+  }, [kalturaId, loadCountryNames]);
 
   // Group paragraphs by OpenAI-identified speaker (using paragraph-level mapping)
   const groupParagraphsBySpeaker = useCallback((paragraphsData: Paragraph[], mappings: SpeakerMapping): SpeakerSegment[] => {

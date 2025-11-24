@@ -3,13 +3,13 @@ import { identifySpeakers } from '@/lib/speaker-identification';
 
 export async function POST(request: NextRequest) {
   try {
-    const { paragraphs, transcriptId } = await request.json();
+    const { paragraphs, transcriptId, entryId } = await request.json();
     
     if (!paragraphs || paragraphs.length === 0) {
       return NextResponse.json({ error: 'No paragraphs provided' }, { status: 400 });
     }
 
-    const mapping = await identifySpeakers(paragraphs, transcriptId);
+    const mapping = await identifySpeakers(paragraphs, transcriptId, entryId);
 
     return NextResponse.json({ mapping });
     

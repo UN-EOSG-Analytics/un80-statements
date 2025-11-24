@@ -207,6 +207,24 @@ async function fetchVideosForDate(date: string): Promise<Video[]> {
   return videos;
 }
 
+export async function getVideoById(videoId: string, maxDaysBack: number = 30): Promise<Video | null> {
+  // Search backwards from today to find the video
+  // Most videos will be recent, so this is much faster than loading all 365 days
+  const today = new Date();
+  
+  for (let i = -1; i < maxDaysBack; i++) { // Start with tomorrow (-1)
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    const dateStr = formatDate(date);
+    
+    const videos = await fetchVideosForDate(dateStr);
+    const video = videos.find(v => v.id === videoId);
+    if (video) return video;
+  }
+  
+  return null;
+}
+
 export async function getScheduleVideos(days: number = 7): Promise<Video[]> {
   const dates: string[] = [];
   const today = new Date();

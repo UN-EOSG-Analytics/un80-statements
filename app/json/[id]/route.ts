@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getScheduleVideos, getVideoMetadata } from '@/lib/un-api';
+import { getVideoById, getVideoMetadata } from '@/lib/un-api';
 import { getTranscript } from '@/lib/turso';
 import { getSpeakerMapping, SpeakerInfo } from '@/lib/speakers';
 import { getCountryName } from '@/lib/country-lookup';
-import { scheduleLookbackDays } from '@/lib/config';
 import { extractKalturaId } from '@/lib/kaltura';
 
 interface AssemblyAIParagraph {
@@ -26,9 +25,8 @@ export async function GET(
     const { id } = await context.params;
     const decodedId = decodeURIComponent(id);
     
-    // Get video info
-    const videos = await getScheduleVideos(scheduleLookbackDays);
-    const video = videos.find(v => v.id === decodedId);
+    // Get video info - search backwards from today (fast for recent videos)
+    const video = await getVideoById(decodedId);
 
     if (!video) {
       return NextResponse.json({ error: 'Video not found' }, { status: 404 });

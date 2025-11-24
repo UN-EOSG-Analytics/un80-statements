@@ -1,8 +1,7 @@
-import { getScheduleVideos, getVideoMetadata } from '@/lib/un-api';
+import { getVideoById, getVideoMetadata } from '@/lib/un-api';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { VideoPageClient } from '@/components/video-page-client';
-import { scheduleLookbackDays } from '@/lib/config';
 import { extractKalturaId } from '@/lib/kaltura';
 
 export const dynamic = 'force-dynamic';
@@ -10,8 +9,8 @@ export const dynamic = 'force-dynamic';
 export default async function VideoPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const decodedId = decodeURIComponent(id);
-  const videos = await getScheduleVideos(scheduleLookbackDays);
-  const video = videos.find(v => v.id === decodedId);
+  // Search backwards from today to find the video (much faster than loading 365 days)
+  const video = await getVideoById(decodedId);
 
   if (!video) {
     notFound();
