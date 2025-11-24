@@ -2,7 +2,7 @@
 import '../lib/load-env';
 import { identifySpeakers, ParagraphInput } from '../lib/speaker-identification';
 import { getTursoClient } from '../lib/turso';
-import { extractKalturaId } from '../lib/kaltura';
+import { resolveEntryId as resolveEntryIdHelper } from '../lib/kaltura-helpers';
 
 const usage = `Usage:
   npm run reidentify -- <asset|entry-id>
@@ -43,54 +43,14 @@ const ALL_QUERY = `
 
 const clientPromise = getTursoClient();
 
-const decodeId = (id: string) => decodeURIComponent(id.trim());
-
 async function resolveEntryId(input: string) {
-  const decoded = decodeId(input);
+  const decoded = decodeURIComponent(input.trim());
   if (!decoded) throw new Error('Empty id');
 
-  const client = await clientPromise;
-
-  const maybeEntry = decoded.startsWith('1_') && !decoded.includes('/')
-    ? decoded
-    : extractKalturaId(decoded);
-
-  if (!maybeEntry) throw new Error(`Unable to parse id: ${input}`);
-
-  const existing = await client.execute({
-    sql: 'SELECT 1 FROM transcripts WHERE entry_id = ? LIMIT 1',
-    args: [maybeEntry],
-  });
-  if (existing.rows.length) return maybeEntry;
-
-  const response = await fetch('https://cdnapisec.kaltura.com/api_v3/service/multirequest', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      '1': {
-        service: 'session',
-        action: 'startWidgetSession',
-        widgetId: '_2503451',
-      },
-      '2': {
-        service: 'baseEntry',
-        action: 'list',
-        ks: '{1:result:ks}',
-        filter: { redirectFromEntryId: maybeEntry },
-        responseProfile: { type: 1, fields: 'id' },
-      },
-      apiVersion: '3.3.0',
-      format: 1,
-      ks: '',
-      clientTag: 'html5:v3.17.30',
-      partnerId: 2503451,
-    }),
-  });
-
-  if (!response.ok) throw new Error(`Kaltura lookup failed (${response.status})`);
-  const data = await response.json();
-  const entryId = data[1]?.objects?.[0]?.id;
-  if (!entryId) throw new Error(`No entry found for ${input}`);
+  // Use centralized helper that checks cache first
+  const entryId = await resolveEntryIdHelper(decoded);
+  if (!entryId) throw new Error(`Unable to resolve entry ID for: ${input}`);
+  
   return entryId;
 }
 

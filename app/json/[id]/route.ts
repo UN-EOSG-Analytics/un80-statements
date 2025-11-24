@@ -3,6 +3,7 @@ import { getVideoById, getVideoMetadata } from '@/lib/un-api';
 import { getTranscript } from '@/lib/turso';
 import { getSpeakerMapping, SpeakerInfo } from '@/lib/speakers';
 import { getCountryName } from '@/lib/country-lookup';
+import { resolveEntryId } from '@/lib/kaltura-helpers';
 import { extractKalturaId } from '@/lib/kaltura';
 
 interface AssemblyAIParagraph {
@@ -32,60 +33,21 @@ export async function GET(
       return NextResponse.json({ error: 'Video not found' }, { status: 404 });
     }
 
+    // Extract Kaltura ID for response
     const kalturaId = extractKalturaId(video.id);
-    
-    if (!kalturaId) {
-      return NextResponse.json({ error: 'Unable to extract video ID' }, { status: 400 });
-    }
 
     // Get video metadata
     const metadata = await getVideoMetadata(video.id);
 
-    // Get Kaltura entry ID for transcript lookup
-    const apiResponse = await fetch('https://cdnapisec.kaltura.com/api_v3/service/multirequest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        '1': {
-          service: 'session',
-          action: 'startWidgetSession',
-          widgetId: '_2503451',
-        },
-        '2': {
-          service: 'baseEntry',
-          action: 'list',
-          ks: '{1:result:ks}',
-          filter: { redirectFromEntryId: kalturaId },
-          responseProfile: { type: 1, fields: 'id' },
-        },
-        apiVersion: '3.3.0',
-        format: 1,
-        ks: '',
-        clientTag: 'html5:v3.17.30',
-        partnerId: 2503451,
-      }),
-    });
-
-    if (!apiResponse.ok) {
-      const response = NextResponse.json({
-        video,
-        metadata,
-        transcript: null,
-        error: 'Failed to query Kaltura API'
-      });
-      response.headers.set('Content-Type', 'application/json; charset=utf-8');
-      return response;
-    }
-
-    const apiData = await apiResponse.json();
-    const entryId = apiData[1]?.objects?.[0]?.id;
+    // Resolve entry ID (checks cache first, then Kaltura API)
+    const entryId = await resolveEntryId(video.id);
     
     if (!entryId) {
       const response = NextResponse.json({
         video,
         metadata,
         transcript: null,
-        error: 'No entry found'
+        error: 'Unable to resolve video entry ID'
       });
       response.headers.set('Content-Type', 'application/json; charset=utf-8');
       return response;

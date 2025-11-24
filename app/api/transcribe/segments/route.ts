@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllTranscriptsForEntry } from '@/lib/turso';
+import { resolveEntryId } from '@/lib/kaltura-helpers';
 
 interface Gap {
   start: number;
@@ -28,40 +29,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Kaltura ID is required' }, { status: 400 });
     }
 
-    // Resolve Kaltura ID to actual entry ID
-    const apiResponse = await fetch('https://cdnapisec.kaltura.com/api_v3/service/multirequest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        '1': {
-          service: 'session',
-          action: 'startWidgetSession',
-          widgetId: '_2503451',
-        },
-        '2': {
-          service: 'baseEntry',
-          action: 'list',
-          ks: '{1:result:ks}',
-          filter: { redirectFromEntryId: kalturaId },
-          responseProfile: { type: 1, fields: 'id' },
-        },
-        apiVersion: '3.3.0',
-        format: 1,
-        ks: '',
-        clientTag: 'html5:v3.17.30',
-        partnerId: 2503451,
-      }),
-    });
-
-    if (!apiResponse.ok) {
-      return NextResponse.json({ error: 'Failed to query Kaltura API' }, { status: 500 });
-    }
-
-    const apiData = await apiResponse.json();
-    const entryId = apiData[1]?.objects?.[0]?.id;
+    // Resolve Kaltura ID to actual entry ID (checks cache first)
+    const entryId = await resolveEntryId(kalturaId);
     
     if (!entryId) {
-      return NextResponse.json({ error: 'No entry found' }, { status: 404 });
+      return NextResponse.json({ error: 'Unable to resolve entry ID' }, { status: 404 });
     }
     
     // Get existing segments from Turso

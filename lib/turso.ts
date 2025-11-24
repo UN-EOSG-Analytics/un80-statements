@@ -42,6 +42,36 @@ async function ensureInitialized() {
   await client.execute(`
     CREATE INDEX IF NOT EXISTS idx_entry_id ON transcripts(entry_id)
   `);
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS videos (
+      asset_id TEXT PRIMARY KEY,
+      entry_id TEXT,
+      title TEXT NOT NULL,
+      clean_title TEXT,
+      date TEXT NOT NULL,
+      scheduled_time TEXT,
+      duration INTEGER,
+      url TEXT NOT NULL,
+      body TEXT,
+      category TEXT,
+      event_code TEXT,
+      event_type TEXT,
+      session_number TEXT,
+      part_number TEXT,
+      last_seen TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await client.execute(`
+    CREATE INDEX IF NOT EXISTS idx_videos_entry_id ON videos(entry_id)
+  `);
+  await client.execute(`
+    CREATE INDEX IF NOT EXISTS idx_videos_date ON videos(date)
+  `);
+  await client.execute(`
+    CREATE INDEX IF NOT EXISTS idx_videos_last_seen ON videos(last_seen)
+  `);
   initialized = true;
 }
 
@@ -214,4 +244,149 @@ export async function getAllTranscriptedEntries(): Promise<string[]> {
   
   return result.rows.map(row => row.entry_id as string);
 }
+
+export interface VideoRecord {
+  asset_id: string;
+  entry_id: string | null;
+  title: string;
+  clean_title: string | null;
+  date: string;
+  scheduled_time: string | null;
+  duration: number | null;
+  url: string;
+  body: string | null;
+  category: string | null;
+  event_code: string | null;
+  event_type: string | null;
+  session_number: string | null;
+  part_number: string | null;
+  last_seen: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function saveVideo(video: Omit<VideoRecord, 'created_at' | 'updated_at'>): Promise<void> {
+  await ensureInitialized();
+  
+  const now = new Date().toISOString();
+  
+  await client.execute({
+    sql: `
+      INSERT INTO videos (
+        asset_id, entry_id, title, clean_title, date, scheduled_time,
+        duration, url, body, category, event_code, event_type,
+        session_number, part_number, last_seen, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(asset_id) DO UPDATE SET
+        entry_id = COALESCE(excluded.entry_id, entry_id),
+        title = excluded.title,
+        clean_title = excluded.clean_title,
+        scheduled_time = excluded.scheduled_time,
+        duration = excluded.duration,
+        body = excluded.body,
+        category = excluded.category,
+        event_code = excluded.event_code,
+        event_type = excluded.event_type,
+        session_number = excluded.session_number,
+        part_number = excluded.part_number,
+        last_seen = excluded.last_seen,
+        updated_at = excluded.updated_at
+    `,
+    args: [
+      video.asset_id,
+      video.entry_id,
+      video.title,
+      video.clean_title,
+      video.date,
+      video.scheduled_time,
+      video.duration,
+      video.url,
+      video.body,
+      video.category,
+      video.event_code,
+      video.event_type,
+      video.session_number,
+      video.part_number,
+      video.last_seen,
+      now,
+      now,
+    ],
+  });
+}
+
+export async function getVideoByAssetId(assetId: string): Promise<VideoRecord | null> {
+  await ensureInitialized();
+  
+  const result = await client.execute({
+    sql: 'SELECT * FROM videos WHERE asset_id = ?',
+    args: [assetId],
+  });
+  
+  if (result.rows.length === 0) return null;
+  
+  const row = result.rows[0];
+  return {
+    asset_id: row.asset_id as string,
+    entry_id: row.entry_id as string | null,
+    title: row.title as string,
+    clean_title: row.clean_title as string | null,
+    date: row.date as string,
+    scheduled_time: row.scheduled_time as string | null,
+    duration: row.duration as number | null,
+    url: row.url as string,
+    body: row.body as string | null,
+    category: row.category as string | null,
+    event_code: row.event_code as string | null,
+    event_type: row.event_type as string | null,
+    session_number: row.session_number as string | null,
+    part_number: row.part_number as string | null,
+    last_seen: row.last_seen as string,
+    created_at: row.created_at as string,
+    updated_at: row.updated_at as string,
+  };
+}
+
+export async function getRecentVideos(daysBack: number = 365): Promise<VideoRecord[]> {
+  await ensureInitialized();
+  
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - daysBack);
+  const cutoff = cutoffDate.toISOString().split('T')[0];
+  
+  const result = await client.execute({
+    sql: 'SELECT * FROM videos WHERE last_seen >= ? ORDER BY date DESC, scheduled_time DESC',
+    args: [cutoff],
+  });
+  
+  return result.rows.map(row => ({
+    asset_id: row.asset_id as string,
+    entry_id: row.entry_id as string | null,
+    title: row.title as string,
+    clean_title: row.clean_title as string | null,
+    date: row.date as string,
+    scheduled_time: row.scheduled_time as string | null,
+    duration: row.duration as number | null,
+    url: row.url as string,
+    body: row.body as string | null,
+    category: row.category as string | null,
+    event_code: row.event_code as string | null,
+    event_type: row.event_type as string | null,
+    session_number: row.session_number as string | null,
+    part_number: row.part_number as string | null,
+    last_seen: row.last_seen as string,
+    created_at: row.created_at as string,
+    updated_at: row.updated_at as string,
+  }));
+}
+
+export async function updateVideoEntryId(assetId: string, entryId: string): Promise<void> {
+  await ensureInitialized();
+  
+  await client.execute({
+    sql: 'UPDATE videos SET entry_id = ?, updated_at = ? WHERE asset_id = ?',
+    args: [entryId, new Date().toISOString(), assetId],
+  });
+}
+
+export const db = client;
 
