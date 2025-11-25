@@ -24,9 +24,6 @@ export default async function Home() {
                     <h1 className="text-3xl font-semibold mb-2">
                         UN Web TV 2.0
                     </h1>
-                    <p className="text-muted-foreground">
-                        {videos.length} videos from the past {scheduleLookbackDays} days
-                    </p>
                 </header>
 
                 <Suspense fallback={<div>Loading...</div>}>
