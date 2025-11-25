@@ -81,8 +81,29 @@ export async function getTursoClient() {
 }
 
 interface TranscriptContent {
-  paragraphs: Array<{
-    text: string;
+  statements: Array<{
+    paragraphs: Array<{
+      sentences: Array<{
+        text: string;
+        start: number;
+        end: number;
+        topic_keys?: string[];
+        words: Array<{
+          text: string;
+          start: number;
+          end: number;
+          confidence: number;
+        }>;
+      }>;
+      start: number;
+      end: number;
+      words: Array<{
+        text: string;
+        start: number;
+        end: number;
+        confidence: number;
+      }>;
+    }>;
     start: number;
     end: number;
     words: Array<{
@@ -94,10 +115,9 @@ interface TranscriptContent {
   }>;
   topics?: Record<string, {
     key: string;
+    label: string;
     description: string;
-    color: string;
   }>;
-  paragraph_topics?: Record<string, string[]>;
 }
 
 export interface Transcript {

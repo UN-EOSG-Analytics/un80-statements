@@ -4,8 +4,26 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { SpeakerMapping } from '@/lib/speakers';
 import type { Video, VideoMetadata } from '@/lib/un-api';
 import { getCountryName } from '@/lib/country-lookup';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, FoldVertical, UnfoldVertical } from 'lucide-react';
 import ExcelJS from 'exceljs';
+
+const TOPIC_COLOR_PALETTE = [
+  '#5b8dc9', // blue
+  '#5eb87d', // green
+  '#9b7ac9', // purple
+  '#e67c5a', // coral
+  '#4db8d4', // cyan
+  '#d4a834', // gold
+  '#7aad6f', // sage
+  '#d46ba3', // pink
+  '#5aa7d4', // sky blue
+  '#c98d4d', // orange
+];
+
+function getTopicColor(topicKey: string, allTopicKeys: string[]): string {
+  const index = allTopicKeys.indexOf(topicKey);
+  return TOPIC_COLOR_PALETTE[index % TOPIC_COLOR_PALETTE.length];
+}
 
 interface TranscriptionPanelProps {
   kalturaId: string;
@@ -24,72 +42,55 @@ interface Word {
   end: number; // Milliseconds
 }
 
-interface Paragraph {
-  text: string;
-  start: number; // Milliseconds
-  end: number; // Milliseconds
-  words: Word[];
-}
-
 interface SpeakerSegment {
-  speaker: string;
-  paragraphs: Paragraph[];
+  speaker: string; // Stringified speaker info for identity comparison
+  statementIndices: number[]; // Direct references to statements
   timestamp: number;
-  paragraphIndices?: number[]; // Track original paragraph indices for speaker lookup
 }
 
-function getContrastColor(hexColor: string): string {
-  const rgb = parseInt(hexColor.slice(1), 16);
-  const r = (rgb >> 16) & 0xff;
-  const g = (rgb >> 8) & 0xff;
-  const b = (rgb >> 0) & 0xff;
-  const luma = 0.299 * r + 0.587 * g + 0.114 * b;
-  return luma > 186 ? '#000000' : '#FFFFFF';
+interface Statement {
+  paragraphs: Array<{
+    sentences: Array<{
+      text: string;
+      start: number; // Milliseconds
+      end: number; // Milliseconds
+      topic_keys?: string[];
+      words?: Word[];
+    }>;
+    start: number; // Milliseconds
+    end: number; // Milliseconds
+    words: Word[];
+  }>;
+  start: number; // Milliseconds - overall statement timing
+  end: number; // Milliseconds - overall statement timing
+  words: Word[]; // All words for the statement
 }
-
-function formatTopicLabel(kebabCase: string): string {
-  return kebabCase
-    .split('-')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
 
 export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPanelProps) {
-  const [paragraphs, setParagraphs] = useState<Paragraph[] | null>(null);
   const [segments, setSegments] = useState<SpeakerSegment[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [cached, setCached] = useState(false);
+  const [, setCached] = useState(false);
   const [checking, setChecking] = useState(true);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number>(-1);
   const [showCopied, setShowCopied] = useState(false);
-  const [activeParagraphIndex, setActiveParagraphIndex] = useState<number>(-1);
-  const [activeWordIndex, setActiveWordIndex] = useState<number>(-1);
   const [speakerMappings, setSpeakerMappings] = useState<SpeakerMapping>({});
   const [identifyingSpeakers, setIdentifyingSpeakers] = useState(false);
   const [countryNames, setCountryNames] = useState<Map<string, string>>(new Map());
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
-  const [topics, setTopics] = useState<Record<string, { key: string; description: string; color: string }>>({});
-  const [paragraphTopics, setParagraphTopics] = useState<Record<string, string[]>>({});
+  const [topics, setTopics] = useState<Record<string, { key: string; label: string; description: string }>>({});
+  const [statements, setStatements] = useState<Statement[] | null>(null);
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
+  const [topicCollapsed, setTopicCollapsed] = useState<boolean>(false);
+  const [activeStatementIndex, setActiveStatementIndex] = useState<number>(-1);
+  const [activeParagraphIndex, setActiveParagraphIndex] = useState<number>(-1);
+  const [activeSentenceIndex, setActiveSentenceIndex] = useState<number>(-1);
+  const [activeWordIndex, setActiveWordIndex] = useState<number>(-1);
   const segmentRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const paragraphRefs = useRef<Map<string, HTMLParagraphElement>>(new Map());
-  const wordRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
   const downloadButtonRef = useRef<HTMLDivElement>(null);
 
   // Filter segments by selected topic
-  const filteredSegments = useMemo(() => {
-    if (!segments || !selectedTopic) return segments;
-    
-    return segments.filter(segment => {
-      // Check if any paragraph in segment has the selected topic
-      return segment.paragraphIndices?.some(idx => 
-        paragraphTopics[idx.toString()]?.includes(selectedTopic)
-      );
-    });
-  }, [segments, selectedTopic, paragraphTopics]);
 
   const formatTime = (seconds: number | null | undefined): string => {
     if (seconds === null || seconds === undefined || isNaN(seconds)) return '';
@@ -103,15 +104,15 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const getSpeakerText = (paragraphIndex: number | undefined): string => {
-    if (paragraphIndex === undefined) {
+  const getSpeakerText = (statementIndex: number | undefined): string => {
+    if (statementIndex === undefined) {
       return 'Speaker';
     }
     
-    const info = speakerMappings[paragraphIndex.toString()];
+    const info = speakerMappings[statementIndex.toString()];
     
     if (!info || (!info.affiliation && !info.group && !info.function && !info.name)) {
-      return `Speaker ${paragraphIndex + 1}`;
+      return `Speaker ${statementIndex + 1}`;
     }
     
     const parts: string[] = [];
@@ -136,15 +137,15 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
     return parts.join(' · ');
   };
 
-  const renderSpeakerInfo = (paragraphIndex: number | undefined) => {
-    if (paragraphIndex === undefined) {
+  const renderSpeakerInfo = (statementIndex: number | undefined) => {
+    if (statementIndex === undefined) {
       return <span>Speaker</span>;
     }
     
-    const info = speakerMappings[paragraphIndex.toString()];
+    const info = speakerMappings[statementIndex.toString()];
     
     if (!info || (!info.affiliation && !info.group && !info.function && !info.name)) {
-      return <span>Speaker {paragraphIndex + 1}</span>;
+      return <span>Speaker {statementIndex + 1}</span>;
     }
     
     return (
@@ -199,47 +200,43 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
   };
 
   // Helper to insert paragraph breaks within a speaker's words
-  const insertParagraphBreaks = useCallback((words: Word[], originalParagraphs: Paragraph[]): Paragraph[] => {
-    if (words.length === 0) return [];
-
-    // Create a set of paragraph boundary timestamps
-    const paragraphBoundaries = new Set(
-      originalParagraphs.map(p => p.start / 1000)
-    );
-
-    const paragraphs: Paragraph[] = [];
-    let currentParagraphWords: Word[] = [];
-    let currentParagraphStart = words[0].start;
-
-    words.forEach((word, index) => {
-      currentParagraphWords.push(word);
-
-      // Check if next word starts a new paragraph
-      const nextWord = words[index + 1];
-      if (nextWord && paragraphBoundaries.has(nextWord.start)) {
-        // End current paragraph
-        paragraphs.push({
-          text: currentParagraphWords.map(w => w.text).join(' '),
-          start: currentParagraphStart,
-          end: word.end,
-          words: currentParagraphWords,
-        });
-        currentParagraphWords = [];
-        currentParagraphStart = nextWord.start;
+  // Group statements by consecutive same speaker
+  const groupStatementsBySpeaker = useCallback((statementsData: Statement[], mappings: SpeakerMapping): SpeakerSegment[] => {
+    const segments: SpeakerSegment[] = [];
+    
+    if (statementsData.length === 0) return segments;
+    
+    let currentSegment: SpeakerSegment | null = null;
+    
+    statementsData.forEach((stmt, index) => {
+      const speakerInfo = mappings[index.toString()];
+      const speakerId = JSON.stringify(speakerInfo || {}); // Use stringified info as unique ID
+      
+      // Get timestamp from first paragraph's first sentence
+      const timestamp = stmt.paragraphs[0]?.sentences[0]?.start ? stmt.paragraphs[0].sentences[0].start / 1000 : 0;
+      
+      if (!currentSegment || currentSegment.speaker !== speakerId) {
+        // Start a new segment
+        if (currentSegment) {
+          segments.push(currentSegment);
+        }
+        currentSegment = {
+          speaker: speakerId,
+          statementIndices: [index],
+          timestamp,
+        };
+      } else {
+        // Add to current segment
+        currentSegment.statementIndices.push(index);
       }
     });
-
-    // Add final paragraph
-    if (currentParagraphWords.length > 0) {
-      paragraphs.push({
-        text: currentParagraphWords.map(w => w.text).join(' '),
-        start: currentParagraphStart,
-        end: currentParagraphWords[currentParagraphWords.length - 1].end,
-        words: currentParagraphWords,
-      });
+    
+    // Add final segment
+    if (currentSegment) {
+      segments.push(currentSegment);
     }
-
-    return paragraphs;
+    
+    return segments;
   }, []);
 
   const loadCountryNames = useCallback(async (mapping: SpeakerMapping) => {
@@ -264,135 +261,12 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
     setCountryNames(names);
   }, []);
 
-  const identifySpeakers = useCallback(async (paragraphsData: Paragraph[], transcriptId?: string) => {
-    setIdentifyingSpeakers(true);
-    try {
-      const response = await fetch('/api/identify-speakers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paragraphs: paragraphsData, transcriptId, entryId: kalturaId }),
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.mapping) {
-          setSpeakerMappings(data.mapping);
-          // Load country names for affiliations
-          await loadCountryNames(data.mapping);
-        }
-      }
-    } catch (err) {
-      console.error('Speaker identification failed:', err);
-    } finally {
-      setIdentifyingSpeakers(false);
-    }
-  }, [kalturaId, loadCountryNames]);
-
-  // Group paragraphs by OpenAI-identified speaker (using paragraph-level mapping)
-  const groupParagraphsBySpeaker = useCallback((paragraphsData: Paragraph[], mappings: SpeakerMapping): SpeakerSegment[] => {
-    const segments: SpeakerSegment[] = [];
-    
-    if (paragraphsData.length === 0) return segments;
-    
-    let currentSegment: SpeakerSegment | null = null;
-    
-    paragraphsData.forEach((para, index) => {
-      const speakerInfo = mappings[index.toString()];
-      const speakerId = JSON.stringify(speakerInfo || {}); // Use stringified info as unique ID
-      
-      // Convert timestamp from ms to seconds
-      const paraWithSeconds = {
-        ...para,
-        start: para.start / 1000,
-        end: para.end / 1000,
-        words: para.words.map(w => ({
-          ...w,
-          start: w.start / 1000,
-          end: w.end / 1000,
-        })),
-      };
-      
-      if (!currentSegment || currentSegment.speaker !== speakerId) {
-        // Start a new segment
-        if (currentSegment) {
-          segments.push(currentSegment);
-        }
-        currentSegment = {
-          speaker: speakerId,
-          paragraphs: [paraWithSeconds],
-          timestamp: paraWithSeconds.start,
-          paragraphIndices: [index],
-        };
-      } else {
-        // Add to current segment
-        currentSegment.paragraphs.push(paraWithSeconds);
-        currentSegment.paragraphIndices?.push(index);
-      }
-    });
-    
-    // Add final segment
-    if (currentSegment) {
-      segments.push(currentSegment);
-    }
-    
-    return segments;
-  }, []);
-
-  // Regenerate segments when speaker mappings change
+  // Regenerate segments when speaker mappings or statements change
   useEffect(() => {
-    if (paragraphs && Object.keys(speakerMappings).length > 0) {
-      setSegments(groupParagraphsBySpeaker(paragraphs, speakerMappings));
+    if (statements && Object.keys(speakerMappings).length > 0) {
+      setSegments(groupStatementsBySpeaker(statements, speakerMappings));
     }
-  }, [paragraphs, speakerMappings, groupParagraphsBySpeaker]);
-
-  const formatParagraphs = useCallback((paragraphsData: Paragraph[]): SpeakerSegment[] => {
-    // Flatten all words from paragraphs and convert timestamps
-    const allWords = paragraphsData.flatMap(para => 
-      para.words.map(word => ({
-        ...word,
-        start: word.start / 1000,
-        end: word.end / 1000,
-      }))
-    );
-
-    // First, group words by speaker
-    const segments: SpeakerSegment[] = [];
-    let currentSpeaker: string | null = null;
-    let currentWords: Word[] = [];
-    let currentTimestamp = 0;
-
-    allWords.forEach((word) => {
-      const speaker = word.speaker || 'Unknown';
-      
-      if (speaker !== currentSpeaker) {
-        if (currentWords.length > 0) {
-          // Now insert paragraph breaks within this speaker segment
-          const paragraphs = insertParagraphBreaks(currentWords, paragraphsData);
-          segments.push({
-            speaker: currentSpeaker || 'Unknown',
-            paragraphs,
-            timestamp: currentTimestamp,
-          });
-        }
-        currentSpeaker = speaker;
-        currentWords = [word];
-        currentTimestamp = word.start;
-      } else {
-        currentWords.push(word);
-      }
-    });
-
-    if (currentWords.length > 0) {
-      const paragraphs = insertParagraphBreaks(currentWords, paragraphsData);
-      segments.push({
-        speaker: currentSpeaker || 'Unknown',
-        paragraphs,
-        timestamp: currentTimestamp,
-      });
-    }
-
-    return segments;
-  }, [insertParagraphBreaks]);
+  }, [statements, speakerMappings, groupStatementsBySpeaker]);
 
   const handleTranscribe = async (force = false) => {
     setLoading(true);
@@ -436,45 +310,38 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
       
       const data = await response.json();
       
-      // If cached/completed transcript with paragraphs
-      if (data.paragraphs && data.paragraphs.length > 0) {
-        setParagraphs(data.paragraphs);
-        setSegments(formatParagraphs(data.paragraphs));
-        setCached(data.cached || false);
+      // Handle response data
+      if (!data.statements || data.statements.length === 0) {
+        throw new Error('Invalid transcript format');
+      }
+      
+      setStatements(data.statements);
+      setCached(data.cached || false);
+      
+      // Load topics
+      if (data.topics) {
+        setTopics(data.topics);
+      }
         
-        // Load topics if available
-        if (data.topics) {
-          setTopics(data.topics);
-          setParagraphTopics(data.paragraph_topics || {});
-        }
-        
-        // Load speaker mappings if cached
-        if (data.cached && data.transcriptId) {
-          try {
-            const speakerResponse = await fetch('/api/get-speaker-mapping', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ transcriptId: data.transcriptId }),
-            });
-            if (speakerResponse.ok) {
-              const speakerData = await speakerResponse.json();
-              if (speakerData.mapping) {
-                setSpeakerMappings(speakerData.mapping);
-                await loadCountryNames(speakerData.mapping);
-              }
+      // Load speaker mappings if cached
+      if (data.cached && data.transcriptId) {
+        try {
+          const speakerResponse = await fetch('/api/get-speaker-mapping', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcriptId: data.transcriptId }),
+          });
+          if (speakerResponse.ok) {
+            const speakerData = await speakerResponse.json();
+            if (speakerData.mapping) {
+              setSpeakerMappings(speakerData.mapping);
+              await loadCountryNames(speakerData.mapping);
             }
-          } catch (err) {
-            console.log('Failed to load speaker mappings:', err);
           }
+        } catch (err) {
+          console.log('Failed to load speaker mappings:', err);
         }
-        
-        // Identify speakers for new transcripts
-        if (!data.cached) {
-          identifySpeakers(data.paragraphs, data.transcriptId);
-        }
-      } 
-      // If new transcript submitted, poll for completion
-      else if (data.transcriptId) {
+      } else if (data.transcriptId) {
         console.log('Polling for transcript:', data.transcriptId);
         
         let pollCount = 0;
@@ -496,14 +363,34 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
           
           const pollData = await pollResponse.json();
           
-          if (pollData.status === 'completed' && pollData.paragraphs) {
+          if (pollData.status === 'completed' && pollData.statements) {
             console.log('Transcription completed');
-            setParagraphs(pollData.paragraphs);
-            setSegments(formatParagraphs(pollData.paragraphs));
+            setStatements(pollData.statements);
             setCached(false);
             
-            // Identify speakers after transcription completes
-            identifySpeakers(pollData.paragraphs, pollData.transcriptId);
+            if (pollData.topics) {
+              setTopics(pollData.topics);
+            }
+            
+            // Load speaker mappings
+            if (pollData.transcriptId) {
+              try {
+                const speakerResponse = await fetch('/api/get-speaker-mapping', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ transcriptId: pollData.transcriptId }),
+                });
+                if (speakerResponse.ok) {
+                  const speakerData = await speakerResponse.json();
+                  if (speakerData.mapping) {
+                    setSpeakerMappings(speakerData.mapping);
+                    await loadCountryNames(speakerData.mapping);
+                  }
+                }
+              } catch (err) {
+                console.log('Failed to load speaker mappings:', err);
+              }
+            }
             break;
           } else if (pollData.status === 'error') {
             throw new Error(pollData.error || 'Transcription failed');
@@ -533,21 +420,40 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
     }
   };
 
+  const escapeRtf = (text: string): string => {
+    return text
+      .replace(/\\/g, '\\\\')
+      .replace(/{/g, '\\{')
+      .replace(/}/g, '\\}')
+      .replace(/[\u0080-\uffff]/g, (char) => {
+        // Encode Unicode characters as \uN? where N is the decimal code point
+        const code = char.charCodeAt(0);
+        return `\\u${code}?`;
+      });
+  };
+
   const downloadDocx = () => {
-    if (!segments) return;
+    if (!segments || !statements) return;
     
     // Simple RTF format (opens in Word)
     let rtf = '{\\rtf1\\ansi\\deff0\n';
     segments.forEach(segment => {
-      const firstParaIndex = segment.paragraphIndices?.[0] ?? 0;
-      rtf += `{\\b ${getSpeakerText(firstParaIndex)}`;
+      const firstStmtIndex = segment.statementIndices[0] ?? 0;
+      rtf += `{\\b ${escapeRtf(getSpeakerText(firstStmtIndex))}`;
       if (segment.timestamp !== null) {
         rtf += ` [${formatTime(segment.timestamp)}]`;
       }
       rtf += ':}\\line\\line\n';
-      segment.paragraphs.forEach(para => {
-        rtf += para.text.replace(/\\/g, '\\\\').replace(/{/g, '\\{').replace(/}/g, '\\}');
-        rtf += '\\line\\line\n';
+      
+      segment.statementIndices.forEach(stmtIdx => {
+        const stmt = statements[stmtIdx];
+        if (stmt) {
+          stmt.paragraphs.forEach(para => {
+            const text = para.sentences.map(s => s.text).join(' ');
+            rtf += escapeRtf(text);
+            rtf += '\\line\\line\n';
+          });
+        }
       });
     });
     rtf += '}';
@@ -600,26 +506,32 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
     // Add data
     let paragraphNumber = 1;
     segments.forEach(segment => {
-      segment.paragraphs.forEach((para, paraIndex) => {
-        const globalParaIndex = segment.paragraphIndices?.[paraIndex];
-        const info = globalParaIndex !== undefined ? speakerMappings[globalParaIndex.toString()] : undefined;
+      segment.statementIndices.forEach(stmtIdx => {
+        const info = speakerMappings[stmtIdx.toString()];
+        const stmt = statements?.[stmtIdx];
         
-        const row = worksheet.addRow({
-          date: video.date,
-          source_type: 'WebTV',
-          title: video.cleanTitle,
-          url: video.url,
-          paragraph_number: paragraphNumber++,
-          speaker_affiliation: info?.affiliation ? (countryNames.get(info.affiliation) || info.affiliation) : '',
-          speaker_group: info?.group || '',
-          function: info?.function || '',
-          text: para.text,
-        });
-        
-        // Wrap text in all cells
-        row.eachCell((cell) => {
-          cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
-        });
+        if (stmt) {
+          stmt.paragraphs.forEach(para => {
+            const text = para.sentences.map(s => s.text).join(' ');
+            
+            const row = worksheet.addRow({
+              date: video.date,
+              source_type: 'WebTV',
+              title: video.cleanTitle,
+              url: video.url,
+              paragraph_number: paragraphNumber++,
+              speaker_affiliation: info?.affiliation ? (countryNames.get(info.affiliation) || info.affiliation) : '',
+              speaker_group: info?.group || '',
+              function: info?.function || '',
+              text,
+            });
+            
+            // Wrap text in all cells
+            row.eachCell((cell) => {
+              cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+            });
+          });
+        }
       });
     });
     
@@ -648,35 +560,35 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
         
         if (response.ok) {
           const data = await response.json();
-          if (data.cached && data.paragraphs && data.paragraphs.length > 0) {
-            setParagraphs(data.paragraphs);
-            setSegments(formatParagraphs(data.paragraphs));
+          
+          // Load cached transcript
+          if (data.cached && data.statements && data.statements.length > 0) {
+            setStatements(data.statements);
             setCached(true);
             
-            // Load topics if available
+            // Load topics
             if (data.topics) {
               setTopics(data.topics);
-              setParagraphTopics(data.paragraph_topics || {});
             }
-            
-            // Load speaker mappings if available
-            if (data.transcriptId) {
-              try {
-                const speakerResponse = await fetch('/api/get-speaker-mapping', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ transcriptId: data.transcriptId }),
-                });
-                if (speakerResponse.ok) {
-                  const speakerData = await speakerResponse.json();
-                  if (speakerData.mapping) {
-                    setSpeakerMappings(speakerData.mapping);
-                    await loadCountryNames(speakerData.mapping);
-                  }
+          }
+          
+          // Load speaker mappings if available
+          if (data.transcriptId) {
+            try {
+              const speakerResponse = await fetch('/api/get-speaker-mapping', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ transcriptId: data.transcriptId }),
+              });
+              if (speakerResponse.ok) {
+                const speakerData = await speakerResponse.json();
+                if (speakerData.mapping) {
+                  setSpeakerMappings(speakerData.mapping);
+                  await loadCountryNames(speakerData.mapping);
                 }
-              } catch (err) {
-                console.log('Failed to load speaker mappings:', err);
               }
+            } catch (err) {
+              console.log('Failed to load speaker mappings:', err);
             }
           }
         }
@@ -689,18 +601,23 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
     };
 
     checkCache();
-  }, [kalturaId, formatParagraphs, loadCountryNames]);
+  }, [kalturaId, loadCountryNames]);
 
   // Listen to player time updates with high frequency polling
   useEffect(() => {
     if (!player) return;
 
     let animationFrameId: number;
+    let lastTime = -1;
 
     const updateTime = () => {
       try {
         const time = player.currentTime;
-        setCurrentTime(time);
+        // Only update if time has changed significantly (more than 0.01 seconds)
+        if (Math.abs(time - lastTime) > 0.01) {
+          setCurrentTime(time);
+          lastTime = time;
+        }
       } catch (err) {
         console.log('Failed to get current time:', err);
       }
@@ -714,82 +631,131 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
     };
   }, [player]);
 
-  // Calculate active segment based on current time
+  // Calculate all active indices in a single effect (avoids cascading effects)
   useEffect(() => {
-    if (!segments || segments.length === 0) {
+    if (!segments || !statements || statements.length === 0) {
       setActiveSegmentIndex(-1);
+      setActiveStatementIndex(-1);
+      setActiveParagraphIndex(-1);
+      setActiveSentenceIndex(-1);
+      setActiveWordIndex(-1);
       return;
     }
 
-    // Find the segment that should be active based on current time
+    // Find active segment
+    let newSegmentIdx = -1;
     for (let i = segments.length - 1; i >= 0; i--) {
       if (currentTime >= segments[i].timestamp) {
-        setActiveSegmentIndex(i);
-        return;
+        newSegmentIdx = i;
+        break;
       }
     }
-    
-    setActiveSegmentIndex(-1);
-  }, [currentTime, segments]);
 
-  // Calculate active paragraph within active segment
+    // Find active statement (scan all statements by time)
+    let newStmtIdx = -1;
+    for (let i = statements.length - 1; i >= 0; i--) {
+      const stmt = statements[i];
+      if (stmt?.paragraphs?.[0]?.sentences?.[0]) {
+        const stmtStart = stmt.paragraphs[0].sentences[0].start / 1000;
+        if (currentTime >= stmtStart) {
+          newStmtIdx = i;
+          break;
+        }
+      }
+    }
+
+    // Find active paragraph within statement
+    let newParaIdx = -1;
+    if (newStmtIdx >= 0) {
+      const stmt = statements[newStmtIdx];
+      if (stmt?.paragraphs) {
+        for (let i = stmt.paragraphs.length - 1; i >= 0; i--) {
+          const para = stmt.paragraphs[i];
+          if (para.sentences?.[0]) {
+            const paraStart = para.sentences[0].start / 1000;
+            if (currentTime >= paraStart) {
+              newParaIdx = i;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Find active sentence within paragraph
+    let newSentIdx = -1;
+    if (newStmtIdx >= 0 && newParaIdx >= 0) {
+      const para = statements[newStmtIdx]?.paragraphs?.[newParaIdx];
+      if (para?.sentences) {
+        for (let i = para.sentences.length - 1; i >= 0; i--) {
+          if (currentTime >= para.sentences[i].start / 1000) {
+            newSentIdx = i;
+            break;
+          }
+        }
+      }
+    }
+
+    // Find active word within sentence
+    let newWordIdx = -1;
+    if (newStmtIdx >= 0 && newParaIdx >= 0 && newSentIdx >= 0) {
+      const sentence = statements[newStmtIdx]?.paragraphs?.[newParaIdx]?.sentences?.[newSentIdx];
+      if (sentence?.words) {
+        for (let i = sentence.words.length - 1; i >= 0; i--) {
+          if (currentTime >= sentence.words[i].start / 1000) {
+            newWordIdx = i;
+            break;
+          }
+        }
+      }
+    }
+
+    // Batch state updates (React will batch these)
+    setActiveSegmentIndex(newSegmentIdx);
+    setActiveStatementIndex(newStmtIdx);
+    setActiveParagraphIndex(newParaIdx);
+    setActiveSentenceIndex(newSentIdx);
+    setActiveWordIndex(newWordIdx);
+  }, [currentTime, segments, statements]);
+
+  // Auto-scroll to active paragraph
+  // Only scroll if paragraph changed and is roughly within current view
+  const lastScrolledKey = useRef<string | null>(null);
+  
   useEffect(() => {
-    if (activeSegmentIndex < 0 || !segments || !segments[activeSegmentIndex]?.paragraphs) {
-      setActiveParagraphIndex(-1);
-      return;
-    }
-
-    const segment = segments[activeSegmentIndex];
-    for (let i = segment.paragraphs.length - 1; i >= 0; i--) {
-      const paragraph = segment.paragraphs[i];
-      if (currentTime >= paragraph.start) {
-        setActiveParagraphIndex(i);
-        return;
-      }
-    }
+    if (activeStatementIndex < 0 || activeParagraphIndex < 0) return;
     
-    setActiveParagraphIndex(-1);
-  }, [currentTime, activeSegmentIndex, segments]);
-
-  // Calculate active word within active paragraph
-  useEffect(() => {
-    if (activeSegmentIndex < 0 || activeParagraphIndex < 0 || !segments) {
-      setActiveWordIndex(-1);
-      return;
-    }
-
-    const paragraph = segments[activeSegmentIndex]?.paragraphs[activeParagraphIndex];
-    if (!paragraph?.words) {
-      setActiveWordIndex(-1);
-      return;
-    }
-
-    for (let i = paragraph.words.length - 1; i >= 0; i--) {
-      const word = paragraph.words[i];
-      if (currentTime >= word.start) {
-        setActiveWordIndex(i);
-        return;
-      }
-    }
+    const key = `${activeStatementIndex}-${activeParagraphIndex}`;
     
-    setActiveWordIndex(-1);
-  }, [currentTime, activeSegmentIndex, activeParagraphIndex, segments]);
-
-  // Auto-scroll to active paragraph (position at top 1/3 of viewport)
-  useEffect(() => {
-    if (activeSegmentIndex >= 0 && activeParagraphIndex >= 0) {
-      const key = `${activeSegmentIndex}-${activeParagraphIndex}`;
-      const element = paragraphRefs.current.get(key);
-      if (element) {
-        const elementTop = element.getBoundingClientRect().top + window.scrollY;
-        const offset = window.innerHeight / 3;
-        window.scrollTo({
-          top: elementTop - offset,
-          behavior: 'smooth',
-        });
-      }
+    // Don't scroll if we already scrolled to this paragraph
+    if (lastScrolledKey.current === key) return;
+    
+    const element = document.querySelector<HTMLElement>(`[data-paragraph-key="${key}"]`);
+    if (!element) return;
+    
+    // Find the scroll container (the transcript panel)
+    const scrollContainer = element.closest('.overflow-y-auto');
+    if (!scrollContainer) return;
+    
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    
+    // Calculate positions relative to the container
+    const elementTopInContainer = elementRect.top - containerRect.top + scrollContainer.scrollTop;
+    const containerHeight = scrollContainer.clientHeight;
+    
+    // Only scroll if element is roughly within view (within 1.5 container heights)
+    const relativeTop = elementRect.top - containerRect.top;
+    const isRoughlyInView = relativeTop > -containerHeight * 1.5 && relativeTop < containerHeight * 2.5;
+    
+    if (isRoughlyInView) {
+      const offset = containerHeight / 3;
+      const targetScroll = elementTopInContainer - offset;
+      scrollContainer.scrollTo({ top: targetScroll, behavior: 'smooth' });
+      lastScrolledKey.current = key;
     }
-  }, [activeSegmentIndex, activeParagraphIndex]);
+  }, [activeStatementIndex, activeParagraphIndex]);
+
 
   // Handle click outside dropdown
   useEffect(() => {
@@ -848,7 +814,7 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
                       onClick={downloadDocx}
                       className="w-full px-3 py-2 text-xs text-left hover:bg-muted"
                     >
-                      RTF Document
+                      Text Document
                     </button>
                     <button
                       onClick={downloadExcel}
@@ -901,51 +867,84 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
       )}
       
       {segments && Object.keys(topics).length > 0 && (() => {
-        // Only show topics that actually have paragraphs tagged with them
+        // Collect all used topics from statements
         const usedTopicKeys = new Set<string>();
-        Object.values(paragraphTopics).forEach(topicKeys => {
-          topicKeys.forEach(key => usedTopicKeys.add(key));
-        });
+        if (statements) {
+          statements.forEach(stmt => {
+            stmt.paragraphs.forEach(para => {
+              para.sentences.forEach(sent => {
+                sent.topic_keys?.forEach(key => usedTopicKeys.add(key));
+              });
+            });
+          });
+        }
         
         const usedTopics = Object.values(topics).filter(topic => usedTopicKeys.has(topic.key));
         
         if (usedTopics.length === 0) return null;
         
+        const allTopicKeys = Object.keys(topics);
+        
         return (
-          <div className="flex gap-1.5 flex-wrap mb-3 pb-3 border-b border-border/50">
-            {usedTopics.map(topic => (
+          <div className="mb-3 pb-3 border-b border-border/50">
+            <div className="flex gap-1.5 flex-wrap">
+              {usedTopics.map(topic => {
+                const color = getTopicColor(topic.key, allTopicKeys);
+                return (
+                  <button
+                    key={topic.key}
+                    onClick={() => {
+                      const newTopic = selectedTopic === topic.key ? null : topic.key;
+                      setSelectedTopic(newTopic);
+                      if (!newTopic) setTopicCollapsed(false);
+                    }}
+                    className={`px-2 py-0.5 rounded-full text-xs transition-all ${
+                      selectedTopic === topic.key 
+                        ? 'ring-1 ring-offset-1 font-medium' 
+                        : 'font-normal opacity-70 hover:opacity-100'
+                    }`}
+                    style={{ 
+                      backgroundColor: color + '50',
+                      color: '#374151',
+                      ...(selectedTopic === topic.key && {
+                        backgroundColor: color + '90',
+                        ringColor: color,
+                      })
+                    }}
+                    title={topic.description}
+                  >
+                    {topic.label}
+                  </button>
+                );
+              })}
+            </div>
+            {selectedTopic && (
               <button
-                key={topic.key}
-                onClick={() => setSelectedTopic(
-                  selectedTopic === topic.key ? null : topic.key
-                )}
-                className={`px-2 py-0.5 rounded-full text-xs transition-all ${
-                  selectedTopic === topic.key 
-                    ? 'ring-1 ring-offset-1 font-medium' 
-                    : 'font-normal opacity-70 hover:opacity-100'
-                }`}
-                style={{ 
-                  backgroundColor: topic.color + '40',
-                  color: '#374151',
-                  ...(selectedTopic === topic.key && {
-                    backgroundColor: topic.color + '80',
-                    ringColor: topic.color,
-                  })
-                }}
-                title={topic.description}
+                onClick={() => setTopicCollapsed(!topicCollapsed)}
+                className="flex items-center gap-1.5 mt-2 px-2 py-1 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded transition-colors"
               >
-                {formatTopicLabel(topic.key)}
+                {topicCollapsed ? (
+                  <>
+                    <FoldVertical className="w-3.5 h-3.5" />
+                    <span>Highlights only</span>
+                  </>
+                ) : (
+                  <>
+                    <UnfoldVertical className="w-3.5 h-3.5" />
+                    <span>All content with highlights</span>
+                  </>
+                )}
               </button>
-            ))}
+            )}
           </div>
         );
       })()}
 
       {segments && (
         <div className="space-y-3">
-          {(filteredSegments || segments).map((segment, segmentIndex) => {
+          {segments.map((segment, segmentIndex) => {
             const isSegmentActive = segmentIndex === activeSegmentIndex;
-            const firstParagraphIndex = segment.paragraphIndices?.[0] ?? 0;
+            const firstStmtIndex = segment.statementIndices[0] ?? 0;
             return (
               <div 
                 key={segmentIndex} 
@@ -954,7 +953,7 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
               >
                 <div className="flex items-center gap-2 flex-wrap">
                   <div className={speakerHeaderClass}>
-                    {renderSpeakerInfo(firstParagraphIndex)}
+                    {renderSpeakerInfo(firstStmtIndex)}
                   </div>
                   <button
                     onClick={() => seekToTimestamp(segment.timestamp)}
@@ -964,28 +963,36 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
                     [{formatTime(segment.timestamp)}]
                   </button>
                   {/* Topic indicators in header */}
-                  {segment.paragraphIndices && segment.paragraphIndices.length > 0 && (() => {
+                  {segment.statementIndices.length > 0 && statements && (() => {
                     const segmentTopics = new Set<string>();
-                    segment.paragraphIndices.forEach(idx => {
-                      const topicKeys = paragraphTopics[idx.toString()] || [];
-                      topicKeys.forEach(key => segmentTopics.add(key));
+                    segment.statementIndices.forEach(idx => {
+                      const stmt = statements[idx];
+                      if (stmt) {
+                        stmt.paragraphs.forEach(para => {
+                          para.sentences.forEach(sent => {
+                            sent.topic_keys?.forEach(key => segmentTopics.add(key));
+                          });
+                        });
+                      }
                     });
                     
                     if (segmentTopics.size > 0) {
+                      const allTopicKeys = Object.keys(topics);
                       return (
                         <div className="flex gap-1 ml-1">
                           {Array.from(segmentTopics).map(key => {
                             const topic = topics[key];
                             if (!topic) return null;
+                            const color = getTopicColor(key, allTopicKeys);
                             return (
                               <div
                                 key={key}
                                 className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold shadow-sm"
                                 style={{ 
-                                  backgroundColor: topic.color + '90',
-                                  color: '#374151'
+                                  backgroundColor: color,
+                                  color: '#ffffff'
                                 }}
-                                title={`${formatTopicLabel(topic.key)}: ${topic.description}`}
+                                title={`${topic.label}: ${topic.description}`}
                               >
                                 {key.charAt(0).toUpperCase()}
                               </div>
@@ -1003,91 +1010,113 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
                     : 'bg-muted/50 border-2 border-transparent'
                 }`}>
                   <div className="space-y-3 text-sm leading-relaxed">
-                    {segment.paragraphs.map((paragraph, paraIndex) => {
-                      const isParaActive = isSegmentActive && paraIndex === activeParagraphIndex;
+                    {segment.statementIndices.map((stmtIdx, indexInSegment) => {
+                      const stmt = statements?.[stmtIdx];
                       
-                      // Split by linebreaks (\n\n) to render grouped paragraphs correctly
-                      const textParts = paragraph.text.split('\n\n').filter(t => t.trim());
+                      if (!stmt) return null;
                       
-                      if (textParts.length > 1) {
-                        // Multiple sub-paragraphs - render each with proper spacing
-                        let wordOffset = 0;
-                        return (
-                          <div key={paraIndex} className="space-y-3">
-                            {textParts.map((textPart, subIndex) => {
-                              // Find words that belong to this sub-paragraph
-                              const partWords = textPart.trim().split(/\s+/);
-                              const subWords = paragraph.words.slice(wordOffset, wordOffset + partWords.length);
-                              wordOffset += partWords.length;
-                              
-                              return (
-                                <p 
-                                  key={subIndex}
-                                  ref={(el) => {
-                                    if (el && subIndex === 0) paragraphRefs.current.set(`${segmentIndex}-${paraIndex}`, el);
-                                  }}
-                                >
-                                  {subWords.map((word, wordIndex) => {
-                                    const globalWordIndex = wordIndex + (subIndex > 0 ? textParts.slice(0, subIndex).reduce((sum, t) => sum + t.trim().split(/\s+/).length, 0) : 0);
-                                    const isWordActive = isParaActive && globalWordIndex === activeWordIndex;
-                                    
-                                    return (
-                                      <span
-                                        key={wordIndex}
-                                        ref={(el) => {
-                                          if (el) wordRefs.current.set(`${segmentIndex}-${paraIndex}-${globalWordIndex}`, el);
-                                        }}
-                                        onClick={() => seekToTimestamp(word.start)}
-                                        className="relative cursor-pointer hover:opacity-70"
-                                        style={{
-                                          textDecoration: isWordActive ? 'underline' : 'none',
-                                          textDecorationColor: isWordActive ? 'hsl(var(--primary))' : 'transparent',
-                                          textDecorationThickness: '2px',
-                                          textUnderlineOffset: '3px',
-                                        }}
-                                      >
-                                        {word.text}{' '}
-                                      </span>
-                                    );
-                                  })}
-                                </p>
-                              );
-                            })}
-                          </div>
-                        );
-                      }
+                      const isStmtActive = stmtIdx === activeStatementIndex;
+                      const allTopicKeys = Object.keys(topics);
+                      const highlightColor = selectedTopic ? getTopicColor(selectedTopic, allTopicKeys) : null;
                       
-                      // Single paragraph - render normally
-                      return (
-                        <p 
-                          key={paraIndex}
-                          ref={(el) => {
-                            if (el) paragraphRefs.current.set(`${segmentIndex}-${paraIndex}`, el);
-                          }}
-                        >
-                          {paragraph.words.map((word, wordIndex) => {
-                            const isWordActive = isParaActive && wordIndex === activeWordIndex;
-                            
-                            return (
-                              <span
-                                key={wordIndex}
-                                ref={(el) => {
-                                  if (el) wordRefs.current.set(`${segmentIndex}-${paraIndex}-${wordIndex}`, el);
-                                }}
-                                onClick={() => seekToTimestamp(word.start)}
-                                className="relative cursor-pointer hover:opacity-70"
-                                style={{
-                                  textDecoration: isWordActive ? 'underline' : 'none',
-                                  textDecorationColor: isWordActive ? 'hsl(var(--primary))' : 'transparent',
-                                  textDecorationThickness: '2px',
-                                  textUnderlineOffset: '3px',
-                                }}
-                              >
-                                {word.text}{' '}
-                              </span>
+                          return (
+                            <div key={indexInSegment} className="space-y-3">
+                              {stmt.paragraphs.map((para, paraIdx) => {
+                                const isParaActive = isStmtActive && paraIdx === activeParagraphIndex;
+                                
+                                // If topic is collapsed, skip paragraphs without highlighted sentences
+                                if (topicCollapsed && selectedTopic) {
+                                  const hasHighlight = para.sentences.some(sent => 
+                                    sent.topic_keys?.includes(selectedTopic)
+                                  );
+                                  if (!hasHighlight) return null;
+                                }
+                                
+                                return (
+                                  <p 
+                                    key={paraIdx}
+                                    data-paragraph-key={`${stmtIdx}-${paraIdx}`}
+                                  >
+                                {para.sentences.map((sent, sentIdx) => {
+                                  const isSentActive = isParaActive && sentIdx === activeSentenceIndex;
+                                  const isHighlighted = selectedTopic && sent.topic_keys?.includes(selectedTopic);
+                                  
+                                  // If topic is collapsed, skip non-highlighted sentences
+                                  if (topicCollapsed && selectedTopic && !isHighlighted) {
+                                    return null;
+                                  }
+                                  
+                                  // Render words if available
+                                  if (sent.words && sent.words.length > 0) {
+                                    if (isHighlighted && highlightColor) {
+                                      return (
+                                        <span
+                                          key={sentIdx}
+                                          className="px-2 py-1 rounded-full"
+                                          style={{
+                                            backgroundColor: highlightColor + '30',
+                                            display: 'inline',
+                                          }}
+                                        >
+                                          {sent.words.map((word, wordIdx) => {
+                                            const isActiveWord = isSentActive && wordIdx === activeWordIndex;
+                                            return (
+                                              <span
+                                                key={wordIdx}
+                                                onClick={() => seekToTimestamp(word.start / 1000)}
+                                                className="cursor-pointer hover:opacity-70"
+                                                style={{
+                                                  textDecoration: isActiveWord ? 'underline' : 'none',
+                                                  textDecorationColor: isActiveWord ? 'hsl(var(--primary))' : 'transparent',
+                                                  textDecorationThickness: '2px',
+                                                  textUnderlineOffset: '3px',
+                                                }}
+                                              >
+                                                {word.text}{' '}
+                                              </span>
+                                            );
+                                          })}
+                                        </span>
+                                      );
+                                    }
+                                    return sent.words.map((word, wordIdx) => {
+                                      const isActiveWord = isSentActive && wordIdx === activeWordIndex;
+                                      return (
+                                        <span
+                                          key={`${sentIdx}-${wordIdx}`}
+                                          onClick={() => seekToTimestamp(word.start / 1000)}
+                                          className="cursor-pointer hover:opacity-70"
+                                          style={{
+                                            textDecoration: isActiveWord ? 'underline' : 'none',
+                                            textDecorationColor: isActiveWord ? 'hsl(var(--primary))' : 'transparent',
+                                            textDecorationThickness: '2px',
+                                            textUnderlineOffset: '3px',
+                                          }}
+                                        >
+                                          {word.text}{' '}
+                                        </span>
+                                      );
+                                    });
+                                  }
+                                  
+                                  // Fallback to text rendering
+                                  return (
+                                    <span
+                                      key={sentIdx}
+                                      className={isHighlighted ? 'px-2 py-1 rounded-full' : ''}
+                                      style={isHighlighted && highlightColor ? {
+                                        backgroundColor: highlightColor + '30',
+                                        display: 'inline',
+                                      } : undefined}
+                                    >
+                                      {sent.text}{' '}
+                                    </span>
+                                  );
+                                })}
+                              </p>
                             );
                           })}
-                        </p>
+                        </div>
                       );
                     })}
                   </div>

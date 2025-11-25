@@ -76,22 +76,21 @@ export async function POST(request: NextRequest) {
         isSegmentRequest ? endTime : undefined
       );
       
-      console.log('Turso check for entryId:', entryId, 'cached:', cached ? `found (${cached.status}, ${cached.content.paragraphs.length} paragraphs)` : 'not found');
+      console.log('Turso check for entryId:', entryId, 'cached:', cached ? `found (${cached.status}, ${cached.content.statements?.length || 0} statements)` : 'not found');
       
       if (cached && cached.status === 'completed') {
         console.log('✓ Using cached transcript:', cached.transcript_id);
         
+        if (!cached.content.statements) {
+          return NextResponse.json({ error: 'Transcript uses old format, please retranscribe' }, { status: 400 });
+        }
+        
         return NextResponse.json({
-          text: cached.content.paragraphs.map(p => p.text).join('\n\n'),
-          words: cached.content.paragraphs.flatMap(p => p.words),
-          paragraphs: cached.content.paragraphs,
+          statements: cached.content.statements,
           language: cached.language_code,
           cached: true,
           transcriptId: cached.transcript_id,
-          segmentStart: isSegmentRequest ? startTime : undefined,
-          segmentEnd: isSegmentRequest ? endTime : undefined,
           topics: cached.content.topics || {},
-          paragraph_topics: cached.content.paragraph_topics || {},
         });
       }
     } else {
@@ -178,7 +177,7 @@ export async function POST(request: NextRequest) {
       audioUrl,
       'processing',
       null,
-      { paragraphs: [] }
+      { statements: [], topics: {} }
     );
     console.log('✓ Saved initial record to Turso');
 

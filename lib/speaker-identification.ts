@@ -4,6 +4,8 @@ import { zodResponseFormat } from 'openai/helpers/zod';
 import { setSpeakerMapping, SpeakerInfo } from './speakers';
 import { saveTranscript, getTursoClient } from './turso';
 import './load-env';
+// @ts-expect-error - no types available for sbd
+import sbd from 'sbd';
 
 const ParagraphSpeakerMapping = z.object({
   paragraphs: z.array(z.object({
@@ -33,8 +35,8 @@ const ResegmentationResult = z.object({
 const TopicDefinitions = z.object({
   topics: z.array(z.object({
     key: z.string(),
+    label: z.string(),
     description: z.string(),
-    color: z.string(),
   })),
 });
 
@@ -142,24 +144,101 @@ function speakersEqual(a: SpeakerInfo, b: SpeakerInfo): boolean {
          a.group === b.group;
 }
 
-const TOPIC_COLOR_PALETTE = [
-  '#94a3b8', // slate
-  '#94a9c9', // light blue
-  '#9ca3af', // gray
-  '#a8b5c7', // cool gray
-  '#a3b5a8', // sage
-  '#b5a8a3', // warm gray
-  '#a8a3b5', // lavender
-  '#b5b5a3', // olive
-  '#a3b5b5', // teal gray
-  '#b5a3a8', // mauve
-];
+interface StatementWithSentences {
+  paragraphs: Array<{
+    sentences: Array<{
+      text: string;
+      start: number;
+      end: number;
+      topic_keys?: string[];
+      words: ParagraphWord[];
+    }>;
+    start: number;
+    end: number;
+    words: ParagraphWord[];
+  }>;
+  start: number;
+  end: number;
+  words: ParagraphWord[];
+}
+
+function matchWordsToText(words: ParagraphWord[], offset: number, targetText: string): ParagraphWord[] {
+  const normalized = normalizeText(targetText);
+  const matched: ParagraphWord[] = [];
+  let matchedNorm = '';
+  
+  for (let i = offset; i < words.length; i++) {
+    const testWords = [...matched, words[i]];
+    const testNorm = normalizeText(testWords.map(w => w.text).join(' '));
+    
+    if (normalized.startsWith(testNorm)) {
+      matched.push(words[i]);
+      matchedNorm = testNorm;
+      if (matchedNorm === normalized) break;
+    } else {
+      break;
+    }
+  }
+  
+  return matched;
+}
+
+function buildStatementsWithSentences(paragraphInputs: ParagraphInput[]): StatementWithSentences[] {
+  return paragraphInputs.map(paraInput => {
+    // Split by \n\n to create separate paragraphs
+    const parts = paraInput.text.split('\n\n');
+    
+    const paragraphs: Array<{
+      sentences: Array<{ text: string; start: number; end: number; words: ParagraphWord[] }>;
+      start: number;
+      end: number;
+      words: ParagraphWord[];
+    }> = [];
+    
+    let wordOffset = 0;
+    
+    parts.forEach((part) => {
+      const partSentences: string[] = sbd.sentences(part.trim(), { preserve_whitespace: false });
+      const sentences: Array<{ text: string; start: number; end: number; words: ParagraphWord[] }> = [];
+      
+      partSentences.forEach((sentText: string) => {
+        // Match sentence to words
+        const sentWords = matchWordsToText(paraInput.words, wordOffset, sentText);
+        if (sentWords.length > 0) {
+          sentences.push({
+            text: sentText,
+            start: sentWords[0].start,
+            end: sentWords[sentWords.length - 1].end,
+            words: sentWords,
+          });
+          wordOffset += sentWords.length;
+        }
+      });
+      
+      if (sentences.length > 0) {
+        paragraphs.push({
+          sentences,
+          start: sentences[0].start,
+          end: sentences[sentences.length - 1].end,
+          words: sentences.flatMap(s => s.words),
+        });
+      }
+    });
+    
+    return {
+      paragraphs,
+      start: paraInput.start,
+      end: paraInput.end,
+      words: paraInput.words,
+    };
+  });
+}
 
 async function defineTopics(
   paragraphs: ParagraphInput[],
   speakerMapping: SpeakerMapping,
   client: AzureOpenAI,
-): Promise<Record<string, { key: string; description: string; color: string }>> {
+): Promise<Record<string, { key: string; label: string; description: string }>> {
   console.log(`  → Defining topics...`);
 
   // Build context with paragraphs and speakers, excluding moderators/chairs
@@ -194,27 +273,26 @@ TASK:
 - Identify 5-10 distinct topics discussed in the transcript
 - Each topic must appear in at least 2 different statements by different speakers
 - Focus on substantive policy topics, not procedural matters
-- Use concise, kebab-case keys (2-4 words)
-- Provide clear descriptions
+- For each topic provide:
+  - key: kebab-case slug (2-4 words, e.g., "climate-finance")
+  - label: Human-readable title with proper case, spaces, and special characters (e.g., "Climate Finance")
+  - description: Clear 1-2 sentence explanation
 
 EXAMPLES:
-- "climate-finance": "Financing mechanisms for climate action and adaptation"
-- "peacekeeping-mandate": "Scope and renewal of peacekeeping operations"
-- "humanitarian-access": "Ensuring humanitarian aid reaches affected populations"
-- "sdg-implementation": "Progress on Sustainable Development Goals"
+- key: "climate-finance", label: "Climate Finance", description: "Financing mechanisms for climate action and adaptation"
+- key: "peacekeeping-mandate", label: "Peacekeeping Mandate", description: "Scope and renewal of peacekeeping operations"
+- key: "humanitarian-access", label: "Humanitarian Access", description: "Ensuring humanitarian aid reaches affected populations"
+- key: "sdg-implementation", label: "SDG Implementation", description: "Progress on Sustainable Development Goals"
 
 OUTPUT:
 - Return 5-10 topics as an array
-- Assign each topic a color from the provided palette
-- Keys should be descriptive but concise`,
+- Each topic must have key, label, and description fields`,
       },
       {
         role: 'user',
         content: `Analyze these statements from a UN proceeding and identify the main topics:
 
-${contextParts.join('\n\n')}
-
-Color palette: ${TOPIC_COLOR_PALETTE.join(', ')}`,
+${contextParts.join('\n\n')}`,
       },
     ],
     response_format: zodResponseFormat(TopicDefinitions, 'topics'),
@@ -226,7 +304,7 @@ Color palette: ${TOPIC_COLOR_PALETTE.join(', ')}`,
   const parsed = JSON.parse(result) as z.infer<typeof TopicDefinitions>;
   
   // Convert array to record for easier lookup
-  const topicsRecord: Record<string, { key: string; description: string; color: string }> = {};
+  const topicsRecord: Record<string, { key: string; label: string; description: string }> = {};
   parsed.topics.forEach(topic => {
     topicsRecord[topic.key] = topic;
   });
@@ -344,6 +422,141 @@ ${contextParts.join('\n\n')}`,
   console.log(`  ✓ Tagged ${taggedCount}/${paragraphs.length} paragraphs with topics`);
 
   return paragraphTopics;
+}
+
+async function tagSentencesWithTopics(
+  statements: StatementWithSentences[],
+  topics: Record<string, { key: string; label: string; description: string }>,
+  speakerMapping: SpeakerMapping,
+  client: AzureOpenAI
+): Promise<StatementWithSentences[]> {
+  console.log(`  → Tagging sentences with topics...`);
+
+  const topicKeys = Object.keys(topics);
+  if (topicKeys.length === 0) {
+    console.log(`  ℹ No topics defined, skipping tagging`);
+    return statements;
+  }
+
+  const topicDescriptions = topicKeys.map(key => 
+    `- ${key}: ${topics[key].description}`
+  ).join('\n');
+
+  // Build flat list of all sentences with metadata
+  interface SentenceWithMeta {
+    statementIdx: number;
+    paragraphIdx: number;
+    sentenceIdx: number;
+    text: string;
+    speaker: SpeakerInfo;
+  }
+
+  const allSentences: SentenceWithMeta[] = [];
+  
+  statements.forEach((stmt, stmtIdx) => {
+    const speaker = speakerMapping[stmtIdx.toString()];
+    stmt.paragraphs.forEach((para, paraIdx) => {
+      para.sentences.forEach((sent, sentIdx) => {
+        allSentences.push({
+          statementIdx: stmtIdx,
+          paragraphIdx: paraIdx,
+          sentenceIdx: sentIdx,
+          text: sent.text,
+          speaker,
+        });
+      });
+    });
+  });
+
+  // Filter out moderator/chair sentences
+  const taggableSentences: Array<{ index: number; sentence: SentenceWithMeta }> = [];
+  allSentences.forEach((sent, idx) => {
+    const isModerator = sent.speaker.function?.toLowerCase().includes('chair') ||
+                       sent.speaker.function?.toLowerCase().includes('president') ||
+                       sent.speaker.function?.toLowerCase().includes('moderator');
+    if (!isModerator) {
+      taggableSentences.push({ index: idx, sentence: sent });
+    }
+  });
+
+  // Parallel tagging with context
+  const SentenceTopicResponse = z.object({
+    topic_keys: z.array(z.string()),
+  });
+
+  const tasks = taggableSentences.map(async ({ index: globalIdx, sentence: sent }) => {
+    // Context: 2 sentences before and after from all sentences
+    const contextBefore = allSentences.slice(Math.max(0, globalIdx - 2), globalIdx);
+    const contextAfter = allSentences.slice(globalIdx + 1, Math.min(allSentences.length, globalIdx + 3));
+    
+    const numberedSentences = [
+      ...contextBefore.map((s, i) => `[${i - contextBefore.length}] ${s.text}`),
+      `[CURRENT] ${sent.text}`,
+      ...contextAfter.map((s, i) => `[+${i + 1}] ${s.text}`),
+    ].join('\n');
+    
+    try {
+      const completion = await client.chat.completions.create({
+        model: 'gpt-5',
+        messages: [{
+          role: 'system',
+          content: `You are categorizing UN proceeding sentences by topic.
+
+AVAILABLE TOPICS:
+${topicDescriptions}
+
+TASK:
+- Analyze the [CURRENT] sentence
+- Select 0-3 topics that are directly discussed
+- Only tag substantive policy discussions
+- Return empty array if no topics apply or if purely procedural
+
+RULES:
+- A topic applies if the sentence makes substantive points about it
+- Brief mentions don't count
+- When uncertain, don't tag
+- Return only topic keys, not labels or descriptions`,
+        }, {
+          role: 'user',
+          content: `Which topics (if any) are discussed in the [CURRENT] sentence?
+
+${numberedSentences}`,
+        }],
+        response_format: zodResponseFormat(SentenceTopicResponse, 'sentence_topics'),
+      });
+      
+      const result = completion.choices[0]?.message?.content;
+      if (!result) return { ...sent, topic_keys: [] };
+      
+      const parsed = JSON.parse(result) as z.infer<typeof SentenceTopicResponse>;
+      return { ...sent, topic_keys: parsed.topic_keys };
+    } catch (error) {
+      console.warn(`  ⚠ Failed to tag sentence:`, error);
+      return { ...sent, topic_keys: [] };
+    }
+  });
+  
+  const taggedSentences = await Promise.all(tasks);
+  
+  // Apply topic tags back to statements
+  const updatedStatements: StatementWithSentences[] = statements.map(stmt => ({
+    ...stmt,
+    paragraphs: stmt.paragraphs.map(para => ({
+      ...para,
+      sentences: para.sentences.map(s => ({ ...s })),
+    })),
+  }));
+  
+  taggedSentences.forEach(tagged => {
+    const stmt = updatedStatements[tagged.statementIdx];
+    const para = stmt.paragraphs[tagged.paragraphIdx];
+    para.sentences[tagged.sentenceIdx].topic_keys = tagged.topic_keys;
+  });
+  
+  const taggedCount = taggedSentences.filter(s => s.topic_keys && s.topic_keys.length > 0).length;
+  console.log(`  ✓ Tagged ${taggedCount}/${taggableSentences.length} sentences with topics`);
+  
+  return updatedStatements;
 }
 
 async function resegmentParagraph(
@@ -846,14 +1059,17 @@ ${transcriptParts.join('\n\n')}`,
     finalMapping = groupedMapping;
   }
 
-  // Define and tag topics
-  let topics: Record<string, { key: string; description: string; color: string }> = {};
-  let paragraphTopics: Record<string, string[]> = {};
+  // Build statements with sentences
+  const statementsWithSentences = buildStatementsWithSentences(finalParagraphs);
   
-  if (finalParagraphs.length > 0) {
+  // Define and tag topics
+  let topics: Record<string, { key: string; label: string; description: string }> = {};
+  let taggedStatements = statementsWithSentences;
+  
+  if (statementsWithSentences.length > 0) {
     try {
       topics = await defineTopics(finalParagraphs, finalMapping, client);
-      paragraphTopics = await tagParagraphsWithTopics(finalParagraphs, topics, finalMapping, client);
+      taggedStatements = await tagSentencesWithTopics(statementsWithSentences, topics, finalMapping, client);
     } catch (error) {
       console.warn(`  ⚠ Failed to analyze topics:`, error instanceof Error ? error.message : error);
     }
@@ -879,9 +1095,8 @@ ${transcriptParts.join('\n\n')}`,
         'completed',
         row.language_code as string | null,
         { 
-          paragraphs: finalParagraphs,
+          statements: taggedStatements,
           topics,
-          paragraph_topics: paragraphTopics,
         }
       );
     }

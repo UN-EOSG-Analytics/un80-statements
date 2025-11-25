@@ -44,17 +44,20 @@ export async function POST(request: NextRequest) {
       .filter(seg => seg.status === 'completed')
       .flatMap(seg => {
         const startOffset = seg.start_time || 0;
-        return seg.content.paragraphs.map(para => ({
-          text: para.text,
-          start: (para.start / 1000) + startOffset,
-          end: (para.end / 1000) + startOffset,
-          words: para.words.map(w => ({
-            text: w.text,
-            speaker: null,
-            start: (w.start / 1000) + startOffset,
-            end: (w.end / 1000) + startOffset,
-          })),
-        }));
+        const statements = seg.content.statements || [];
+        return statements.flatMap(stmt => 
+          stmt.paragraphs.map(para => ({
+            text: para.sentences.map(s => s.text).join(' '),
+            start: (para.start / 1000) + startOffset,
+            end: (para.end / 1000) + startOffset,
+            words: para.words.map((w: { text: string; start: number; end: number }) => ({
+              text: w.text,
+              speaker: null,
+              start: (w.start / 1000) + startOffset,
+              end: (w.end / 1000) + startOffset,
+            })),
+          }))
+        );
       })
       .sort((a, b) => a.start - b.start);
 

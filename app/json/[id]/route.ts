@@ -1,22 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getVideoById, getVideoMetadata } from '@/lib/un-api';
 import { getTranscript } from '@/lib/turso';
-import { getSpeakerMapping, SpeakerInfo } from '@/lib/speakers';
+import { getSpeakerMapping, SpeakerInfo, formatSpeakerInfo } from '@/lib/speakers';
 import { getCountryName } from '@/lib/country-lookup';
 import { resolveEntryId } from '@/lib/kaltura-helpers';
 import { extractKalturaId } from '@/lib/kaltura';
-
-interface AssemblyAIParagraph {
-  text: string;
-  start: number;
-  end: number;
-  words: Array<{
-    text: string;
-    start: number;
-    end: number;
-    confidence: number;
-  }>;
-}
 
 export async function GET(
   request: NextRequest,
@@ -81,8 +69,6 @@ export async function GET(
       return response;
     }
 
-    const paragraphs = transcript.content.paragraphs;
-
     // Get speaker mappings
     const speakerMappings = await getSpeakerMapping(transcript.transcript_id) || {};
 
@@ -102,22 +88,26 @@ export async function GET(
       }
     }
 
-    // Build transcript with speaker info
-    const transcriptParagraphs = paragraphs.map((para: AssemblyAIParagraph, index: number) => {
+    const topics = transcript.content.topics || {};
+
+    const transcriptData = transcript.content.statements.map((stmt, index: number) => {
       const info = speakerMappings[index.toString()];
       
       return {
-        paragraph_number: index + 1,
-        text: para.text,
-        start: para.start / 1000, // Convert to seconds
-        end: para.end / 1000,
-        speaker: {
-          name: info?.name || null,
-          affiliation: info?.affiliation || null,
-          affiliation_full: info?.affiliation ? (countryNames.get(info.affiliation) || info.affiliation) : null,
-          group: info?.group || null,
-          function: info?.function || null,
-        },
+        statement_number: index + 1,
+        paragraphs: stmt.paragraphs.map(para => ({
+          sentences: para.sentences.map(sent => ({
+            text: sent.text,
+            start: sent.start / 1000,
+            end: sent.end / 1000,
+            topics: sent.topic_keys?.map(key => ({
+              key,
+              label: topics[key]?.label || key,
+              description: topics[key]?.description || '',
+            })) || [],
+          })),
+        })),
+        speaker: formatSpeakerInfo(info, countryNames),
       };
     });
 
@@ -152,9 +142,12 @@ export async function GET(
       transcript: {
         transcript_id: transcript.transcript_id,
         language: transcript.language_code,
-        paragraphs: transcriptParagraphs,
-        topics: transcript.content.topics || {},
-        paragraph_topics: transcript.content.paragraph_topics || {},
+        data: transcriptData,
+        topics: Object.values(topics).map(t => ({
+          key: t.key,
+          label: t.label,
+          description: t.description,
+        })),
       },
     });
     
