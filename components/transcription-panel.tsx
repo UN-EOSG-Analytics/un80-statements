@@ -82,7 +82,7 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
   const [topics, setTopics] = useState<Record<string, { key: string; label: string; description: string }>>({});
   const [statements, setStatements] = useState<Statement[] | null>(null);
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
-  const [topicCollapsed, setTopicCollapsed] = useState<boolean>(false);
+  const [topicCollapsed, setTopicCollapsed] = useState<boolean>(true);
   const [activeStatementIndex, setActiveStatementIndex] = useState<number>(-1);
   const [activeParagraphIndex, setActiveParagraphIndex] = useState<number>(-1);
   const [activeSentenceIndex, setActiveSentenceIndex] = useState<number>(-1);
@@ -919,22 +919,30 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
               })}
             </div>
             {selectedTopic && (
-              <button
-                onClick={() => setTopicCollapsed(!topicCollapsed)}
-                className="flex items-center gap-1.5 mt-2 px-2 py-1 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded transition-colors"
-              >
-                {topicCollapsed ? (
-                  <>
-                    <FoldVertical className="w-3.5 h-3.5" />
-                    <span>Highlights only</span>
-                  </>
-                ) : (
-                  <>
-                    <UnfoldVertical className="w-3.5 h-3.5" />
-                    <span>All content with highlights</span>
-                  </>
-                )}
-              </button>
+              <div className="inline-flex items-center gap-0.5 mt-2 p-0.5 bg-gray-100 rounded text-xs">
+                <button
+                  onClick={() => setTopicCollapsed(true)}
+                  className={`flex items-center gap-1 px-2 py-1 rounded transition-colors ${
+                    topicCollapsed 
+                      ? 'bg-white text-gray-900 shadow-sm' 
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <FoldVertical className="w-3 h-3" />
+                  <span>Highlights only</span>
+                </button>
+                <button
+                  onClick={() => setTopicCollapsed(false)}
+                  className={`flex items-center gap-1 px-2 py-1 rounded transition-colors ${
+                    !topicCollapsed 
+                      ? 'bg-white text-gray-900 shadow-sm' 
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <UnfoldVertical className="w-3 h-3" />
+                  <span>All content with highlights</span>
+                </button>
+              </div>
             )}
           </div>
         );
