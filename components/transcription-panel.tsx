@@ -475,8 +475,12 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Transcript');
     
-    // Define columns
-    worksheet.columns = [
+    // Get all topic labels for column headers
+    const topicList = Object.values(topics);
+    const topicKeys = topicList.map(t => `topic_${t.key}`);
+    
+    // Define base columns
+    const baseColumns = [
       { header: 'Date', key: 'date', width: 12 },
       { header: 'Source Type', key: 'source_type', width: 12 },
       { header: 'Title', key: 'title', width: 40 },
@@ -487,6 +491,15 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
       { header: 'Function', key: 'function', width: 20 },
       { header: 'Text', key: 'text', width: 60 },
     ];
+    
+    // Add topic columns
+    const topicColumns = topicList.map(topic => ({
+      header: `Topic ${topic.label}`,
+      key: `topic_${topic.key}`,
+      width: 15
+    }));
+    
+    worksheet.columns = [...baseColumns, ...topicColumns];
     
     // Style header row
     const headerRow = worksheet.getRow(1);
@@ -514,7 +527,14 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
           stmt.paragraphs.forEach(para => {
             const text = para.sentences.map(s => s.text).join(' ');
             
-            const row = worksheet.addRow({
+            // Collect all topic keys from sentences in this paragraph
+            const paragraphTopics = new Set<string>();
+            para.sentences.forEach(sent => {
+              sent.topic_keys?.forEach(key => paragraphTopics.add(key));
+            });
+            
+            // Build row data with base columns
+            const rowData: Record<string, string | number> = {
               date: video.date,
               source_type: 'WebTV',
               title: video.cleanTitle,
@@ -524,7 +544,14 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
               speaker_group: info?.group || '',
               function: info?.function || '',
               text,
+            };
+            
+            // Add topic columns
+            topicList.forEach(topic => {
+              rowData[`topic_${topic.key}`] = paragraphTopics.has(topic.key) ? 'Yes' : '';
             });
+            
+            const row = worksheet.addRow(rowData);
             
             // Wrap text in all cells
             row.eachCell((cell) => {
