@@ -85,33 +85,26 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: 'Transcript uses old format, please retranscribe' }, { status: 400 });
         }
         
-        // If statements array is empty, trigger speaker identification
+        // If statements array is empty, trigger speaker identification and tell frontend to poll
         if (cached.content.statements.length === 0) {
           console.log('Cached transcript has 0 statements, triggering speaker identification');
-          try {
-            const identifyResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/identify-speakers`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ transcriptId: cached.transcript_id }),
-            });
-            
-            if (identifyResponse.ok) {
-              const identifyData = await identifyResponse.json();
-              console.log('✓ Speaker identification completed, returning data');
-              return NextResponse.json({
-                statements: identifyData.statements,
-                language: cached.language_code,
-                cached: true,
-                transcriptId: cached.transcript_id,
-                topics: identifyData.topics || {},
-              });
-            } else {
-              console.error('Failed to identify speakers');
-            }
-          } catch (err) {
-            console.error('Error during speaker identification:', err);
-          }
-          // If identification failed, fall through to return empty statements
+          
+          // Trigger speaker identification in background (fire and forget)
+          fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/identify-speakers`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcriptId: cached.transcript_id }),
+          }).catch(err => {
+            console.error('Error triggering speaker identification:', err);
+          });
+          
+          console.log('✓ Speaker identification triggered, returning processing status');
+          
+          // Return the transcript ID so frontend can poll for completion
+          return NextResponse.json({
+            transcriptId: cached.transcript_id,
+            status: 'processing',
+          });
         }
         
         return NextResponse.json({

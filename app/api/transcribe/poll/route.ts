@@ -60,34 +60,47 @@ export async function POST(request: NextRequest) {
           );
           console.log('✓ Saved to Turso successfully');
           
-          // Trigger speaker identification
+          // Trigger speaker identification (fire and forget - it saves to Turso when done)
           console.log('Triggering speaker identification for:', transcriptId);
-          try {
-            const identifyResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/identify-speakers`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ transcriptId }),
-            });
-            
-            if (identifyResponse.ok) {
-              console.log('✓ Speaker identification triggered');
-            } else {
-              console.error('Failed to trigger speaker identification');
-            }
-          } catch (err) {
+          fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/identify-speakers`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcriptId }),
+          }).catch(err => {
             console.error('Error triggering speaker identification:', err);
-          }
+          });
+          console.log('✓ Speaker identification triggered (processing in background)')
         }
       } else {
         console.error('No transcript record found in Turso for transcriptId:', transcriptId);
       }
 
+      // Check if speaker identification has completed by looking for statements in Turso
+      const tursoClient = await getTursoClient();
+      const tursoResult = await tursoClient.execute({
+        sql: 'SELECT entry_id, content FROM transcripts WHERE transcript_id = ?',
+        args: [transcriptId]
+      });
+
+      if (tursoResult.rows.length > 0) {
+        const row = tursoResult.rows[0];
+        const content = typeof row.content === 'string' ? JSON.parse(row.content) : row.content;
+        
+        // If we have statements, speaker identification is complete
+        if (content.statements && content.statements.length > 0) {
+          return NextResponse.json({
+            status: 'completed',
+            statements: content.statements,
+            topics: content.topics || {},
+            language: transcript.language_code,
+            transcriptId,
+          });
+        }
+      }
+      
+      // Speaker identification still running, return processing status
       return NextResponse.json({
-        status: 'completed',
-        text: transcript.text,
-        words: transcript.words || [],
-        paragraphs: paragraphsData?.paragraphs || null,
-        language: transcript.language_code,
+        status: 'processing',
         transcriptId,
       });
     } else if (transcript.status === 'error') {
