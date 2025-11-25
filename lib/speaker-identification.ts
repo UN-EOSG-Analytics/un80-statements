@@ -30,6 +30,19 @@ const ResegmentationResult = z.object({
   })),
 });
 
+const TopicDefinitions = z.object({
+  topics: z.array(z.object({
+    key: z.string(),
+    description: z.string(),
+    color: z.string(),
+  })),
+});
+
+const ParagraphTopicTags = z.object({
+  paragraph_index: z.number(),
+  topic_keys: z.array(z.string()),
+});
+
 const API_VERSION = '2025-01-01-preview';
 
 const IDENTIFICATION_RULES = `IDENTIFICATION RULES:
@@ -125,6 +138,210 @@ function speakersEqual(a: SpeakerInfo, b: SpeakerInfo): boolean {
          a.function === b.function &&
          a.affiliation === b.affiliation &&
          a.group === b.group;
+}
+
+const TOPIC_COLOR_PALETTE = [
+  '#94a3b8', // slate
+  '#94a9c9', // light blue
+  '#9ca3af', // gray
+  '#a8b5c7', // cool gray
+  '#a3b5a8', // sage
+  '#b5a8a3', // warm gray
+  '#a8a3b5', // lavender
+  '#b5b5a3', // olive
+  '#a3b5b5', // teal gray
+  '#b5a3a8', // mauve
+];
+
+async function defineTopics(
+  paragraphs: ParagraphInput[],
+  speakerMapping: SpeakerMapping,
+  client: AzureOpenAI,
+): Promise<Record<string, { key: string; description: string; color: string }>> {
+  console.log(`  → Defining topics...`);
+
+  // Build context with paragraphs and speakers, excluding moderators/chairs
+  const substantiveStatements = paragraphs
+    .map((p, idx) => {
+      const speaker = speakerMapping[idx.toString()];
+      const isChair = speaker?.function?.toLowerCase().includes('chair') || 
+                      speaker?.function?.toLowerCase().includes('president') ||
+                      speaker?.function?.toLowerCase().includes('moderator');
+      return { paragraph: p, index: idx, speaker, isChair };
+    })
+    .filter(({ isChair }) => !isChair);
+
+  if (substantiveStatements.length < 2) {
+    console.log(`  ℹ Too few non-chair statements (${substantiveStatements.length}), skipping topic analysis`);
+    return {};
+  }
+
+  const contextParts = substantiveStatements.map(({ paragraph, index, speaker }) => {
+    const speakerLabel = speaker?.name || speaker?.affiliation || 'Unknown';
+    return `[${index}] ${speakerLabel}: ${paragraph.text}`;
+  });
+
+  const completion = await client.chat.completions.create({
+    model: 'gpt-5',
+    messages: [
+      {
+        role: 'system',
+        content: `You are analyzing a UN proceedings transcript to identify main discussion topics.
+
+TASK:
+- Identify 5-10 distinct topics discussed in the transcript
+- Each topic must appear in at least 2 different statements by different speakers
+- Focus on substantive policy topics, not procedural matters
+- Use concise, kebab-case keys (2-4 words)
+- Provide clear descriptions
+
+EXAMPLES:
+- "climate-finance": "Financing mechanisms for climate action and adaptation"
+- "peacekeeping-mandate": "Scope and renewal of peacekeeping operations"
+- "humanitarian-access": "Ensuring humanitarian aid reaches affected populations"
+- "sdg-implementation": "Progress on Sustainable Development Goals"
+
+OUTPUT:
+- Return 5-10 topics as an array
+- Assign each topic a color from the provided palette
+- Keys should be descriptive but concise`,
+      },
+      {
+        role: 'user',
+        content: `Analyze these statements from a UN proceeding and identify the main topics:
+
+${contextParts.join('\n\n')}
+
+Color palette: ${TOPIC_COLOR_PALETTE.join(', ')}`,
+      },
+    ],
+    response_format: zodResponseFormat(TopicDefinitions, 'topics'),
+  });
+
+  const result = completion.choices[0]?.message?.content;
+  if (!result) throw new Error('Failed to define topics');
+
+  const parsed = JSON.parse(result) as z.infer<typeof TopicDefinitions>;
+  
+  // Convert array to record for easier lookup
+  const topicsRecord: Record<string, { key: string; description: string; color: string }> = {};
+  parsed.topics.forEach(topic => {
+    topicsRecord[topic.key] = topic;
+  });
+  
+  const topicKeys = Object.keys(topicsRecord);
+  console.log(`  ✓ Identified ${topicKeys.length} topics: [${topicKeys.join(', ')}]`);
+  
+  return topicsRecord;
+}
+
+async function tagParagraphsWithTopics(
+  paragraphs: ParagraphInput[],
+  topics: Record<string, { key: string; description: string; color: string }>,
+  speakerMapping: SpeakerMapping,
+  client: AzureOpenAI,
+): Promise<Record<string, string[]>> {
+  console.log(`  → Tagging paragraphs with topics...`);
+
+  const topicKeys = Object.keys(topics);
+  if (topicKeys.length === 0) {
+    console.log(`  ℹ No topics defined, skipping tagging`);
+    return {};
+  }
+
+  const topicDescriptions = topicKeys.map(key => 
+    `- ${key}: ${topics[key].description}`
+  ).join('\n');
+
+  const taggingTasks = paragraphs.map(async (para, idx) => {
+    const speaker = speakerMapping[idx.toString()];
+    
+    // Skip chair/moderator statements
+    const isChair = speaker?.function?.toLowerCase().includes('chair') || 
+                    speaker?.function?.toLowerCase().includes('president') ||
+                    speaker?.function?.toLowerCase().includes('moderator');
+    
+    if (isChair) {
+      return { paragraph_index: idx, topic_keys: [] };
+    }
+
+    // Build context
+    const contextParts: string[] = [];
+    
+    // Previous paragraph
+    if (idx > 0) {
+      const prevSpeaker = speakerMapping[(idx - 1).toString()];
+      const prevLabel = prevSpeaker?.name || prevSpeaker?.affiliation || 'Unknown';
+      contextParts.push(`PREVIOUS: ${prevLabel}: ${paragraphs[idx - 1].text.substring(0, 200)}...`);
+    }
+    
+    // Current paragraph
+    const currentLabel = speaker?.name || speaker?.affiliation || 'Unknown';
+    contextParts.push(`CURRENT: ${currentLabel}: ${para.text}`);
+    
+    // Next paragraph
+    if (idx < paragraphs.length - 1) {
+      const nextSpeaker = speakerMapping[(idx + 1).toString()];
+      const nextLabel = nextSpeaker?.name || nextSpeaker?.affiliation || 'Unknown';
+      contextParts.push(`NEXT: ${nextLabel}: ${paragraphs[idx + 1].text.substring(0, 200)}...`);
+    }
+
+    try {
+      const completion = await client.chat.completions.create({
+        model: 'gpt-5',
+        messages: [
+          {
+            role: 'system',
+            content: `You are tagging UN proceeding statements with relevant topics.
+
+AVAILABLE TOPICS:
+${topicDescriptions}
+
+TASK:
+- Analyze the CURRENT statement
+- Select 0-3 topics that are directly discussed
+- Only tag substantive policy discussions
+- Return empty array if no topics apply or if statement is purely procedural
+
+RULES:
+- A topic applies if the statement makes substantive points about it
+- Brief mentions don't count - the statement must engage with the topic
+- When uncertain, don't tag`,
+          },
+          {
+            role: 'user',
+            content: `Which topics (if any) are discussed in this statement?
+
+${contextParts.join('\n\n')}`,
+          },
+        ],
+        response_format: zodResponseFormat(ParagraphTopicTags, 'tags'),
+      });
+
+      const result = completion.choices[0]?.message?.content;
+      if (!result) {
+        return { paragraph_index: idx, topic_keys: [] };
+      }
+
+      const parsed = JSON.parse(result) as z.infer<typeof ParagraphTopicTags>;
+      return { paragraph_index: idx, topic_keys: parsed.topic_keys };
+    } catch (error) {
+      console.warn(`  ⚠ Failed to tag paragraph ${idx}:`, error instanceof Error ? error.message : error);
+      return { paragraph_index: idx, topic_keys: [] };
+    }
+  });
+
+  const results = await Promise.all(taggingTasks);
+  
+  const paragraphTopics: Record<string, string[]> = {};
+  results.forEach(({ paragraph_index, topic_keys }) => {
+    paragraphTopics[paragraph_index.toString()] = topic_keys;
+  });
+
+  const taggedCount = results.filter(r => r.topic_keys.length > 0).length;
+  console.log(`  ✓ Tagged ${taggedCount}/${paragraphs.length} paragraphs with topics`);
+
+  return paragraphTopics;
 }
 
 async function resegmentParagraph(
@@ -627,6 +844,19 @@ ${transcriptParts.join('\n\n')}`,
     finalMapping = groupedMapping;
   }
 
+  // Define and tag topics
+  let topics: Record<string, { key: string; description: string; color: string }> = {};
+  let paragraphTopics: Record<string, string[]> = {};
+  
+  if (finalParagraphs.length > 0) {
+    try {
+      topics = await defineTopics(finalParagraphs, finalMapping, client);
+      paragraphTopics = await tagParagraphsWithTopics(finalParagraphs, topics, finalMapping, client);
+    } catch (error) {
+      console.warn(`  ⚠ Failed to analyze topics:`, error instanceof Error ? error.message : error);
+    }
+  }
+
   // Save to database
   if (transcriptId && entryId) {
     console.log(`  → Saving to database...`);
@@ -646,7 +876,11 @@ ${transcriptParts.join('\n\n')}`,
         row.audio_url as string,
         'completed',
         row.language_code as string | null,
-        { paragraphs: finalParagraphs }
+        { 
+          paragraphs: finalParagraphs,
+          topics,
+          paragraph_topics: paragraphTopics,
+        }
       );
     }
 

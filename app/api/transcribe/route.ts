@@ -90,6 +90,8 @@ export async function POST(request: NextRequest) {
           transcriptId: cached.transcript_id,
           segmentStart: isSegmentRequest ? startTime : undefined,
           segmentEnd: isSegmentRequest ? endTime : undefined,
+          topics: cached.content.topics || {},
+          paragraph_topics: cached.content.paragraph_topics || {},
         });
       }
     } else {

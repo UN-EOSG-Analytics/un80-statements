@@ -92,6 +92,12 @@ interface TranscriptContent {
       confidence: number;
     }>;
   }>;
+  topics?: Record<string, {
+    key: string;
+    description: string;
+    color: string;
+  }>;
+  paragraph_topics?: Record<string, string[]>;
 }
 
 export interface Transcript {

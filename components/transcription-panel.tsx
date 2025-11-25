@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { SpeakerMapping } from '@/lib/speakers';
 import type { Video, VideoMetadata } from '@/lib/un-api';
 import { getCountryName } from '@/lib/country-lookup';
@@ -38,6 +38,22 @@ interface SpeakerSegment {
   paragraphIndices?: number[]; // Track original paragraph indices for speaker lookup
 }
 
+function getContrastColor(hexColor: string): string {
+  const rgb = parseInt(hexColor.slice(1), 16);
+  const r = (rgb >> 16) & 0xff;
+  const g = (rgb >> 8) & 0xff;
+  const b = (rgb >> 0) & 0xff;
+  const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+  return luma > 186 ? '#000000' : '#FFFFFF';
+}
+
+function formatTopicLabel(kebabCase: string): string {
+  return kebabCase
+    .split('-')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
 
 export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPanelProps) {
   const [paragraphs, setParagraphs] = useState<Paragraph[] | null>(null);
@@ -55,10 +71,25 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
   const [identifyingSpeakers, setIdentifyingSpeakers] = useState(false);
   const [countryNames, setCountryNames] = useState<Map<string, string>>(new Map());
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+  const [topics, setTopics] = useState<Record<string, { key: string; description: string; color: string }>>({});
+  const [paragraphTopics, setParagraphTopics] = useState<Record<string, string[]>>({});
+  const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const segmentRefs = useRef<(HTMLDivElement | null)[]>([]);
   const paragraphRefs = useRef<Map<string, HTMLParagraphElement>>(new Map());
   const wordRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
   const downloadButtonRef = useRef<HTMLDivElement>(null);
+
+  // Filter segments by selected topic
+  const filteredSegments = useMemo(() => {
+    if (!segments || !selectedTopic) return segments;
+    
+    return segments.filter(segment => {
+      // Check if any paragraph in segment has the selected topic
+      return segment.paragraphIndices?.some(idx => 
+        paragraphTopics[idx.toString()]?.includes(selectedTopic)
+      );
+    });
+  }, [segments, selectedTopic, paragraphTopics]);
 
   const formatTime = (seconds: number | null | undefined): string => {
     if (seconds === null || seconds === undefined || isNaN(seconds)) return '';
@@ -411,6 +442,12 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
         setSegments(formatParagraphs(data.paragraphs));
         setCached(data.cached || false);
         
+        // Load topics if available
+        if (data.topics) {
+          setTopics(data.topics);
+          setParagraphTopics(data.paragraph_topics || {});
+        }
+        
         // Load speaker mappings if cached
         if (data.cached && data.transcriptId) {
           try {
@@ -615,6 +652,12 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
             setParagraphs(data.paragraphs);
             setSegments(formatParagraphs(data.paragraphs));
             setCached(true);
+            
+            // Load topics if available
+            if (data.topics) {
+              setTopics(data.topics);
+              setParagraphTopics(data.paragraph_topics || {});
+            }
             
             // Load speaker mappings if available
             if (data.transcriptId) {
@@ -857,9 +900,50 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
         </div>
       )}
       
+      {segments && Object.keys(topics).length > 0 && (() => {
+        // Only show topics that actually have paragraphs tagged with them
+        const usedTopicKeys = new Set<string>();
+        Object.values(paragraphTopics).forEach(topicKeys => {
+          topicKeys.forEach(key => usedTopicKeys.add(key));
+        });
+        
+        const usedTopics = Object.values(topics).filter(topic => usedTopicKeys.has(topic.key));
+        
+        if (usedTopics.length === 0) return null;
+        
+        return (
+          <div className="flex gap-1.5 flex-wrap mb-3 pb-3 border-b border-border/50">
+            {usedTopics.map(topic => (
+              <button
+                key={topic.key}
+                onClick={() => setSelectedTopic(
+                  selectedTopic === topic.key ? null : topic.key
+                )}
+                className={`px-2 py-0.5 rounded-full text-xs transition-all ${
+                  selectedTopic === topic.key 
+                    ? 'ring-1 ring-offset-1 font-medium' 
+                    : 'font-normal opacity-70 hover:opacity-100'
+                }`}
+                style={{ 
+                  backgroundColor: topic.color + '40',
+                  color: '#374151',
+                  ...(selectedTopic === topic.key && {
+                    backgroundColor: topic.color + '80',
+                    ringColor: topic.color,
+                  })
+                }}
+                title={topic.description}
+              >
+                {formatTopicLabel(topic.key)}
+              </button>
+            ))}
+          </div>
+        );
+      })()}
+
       {segments && (
         <div className="space-y-3">
-          {segments.map((segment, segmentIndex) => {
+          {(filteredSegments || segments).map((segment, segmentIndex) => {
             const isSegmentActive = segmentIndex === activeSegmentIndex;
             const firstParagraphIndex = segment.paragraphIndices?.[0] ?? 0;
             return (
@@ -879,6 +963,39 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
                   >
                     [{formatTime(segment.timestamp)}]
                   </button>
+                  {/* Topic indicators in header */}
+                  {segment.paragraphIndices && segment.paragraphIndices.length > 0 && (() => {
+                    const segmentTopics = new Set<string>();
+                    segment.paragraphIndices.forEach(idx => {
+                      const topicKeys = paragraphTopics[idx.toString()] || [];
+                      topicKeys.forEach(key => segmentTopics.add(key));
+                    });
+                    
+                    if (segmentTopics.size > 0) {
+                      return (
+                        <div className="flex gap-1 ml-1">
+                          {Array.from(segmentTopics).map(key => {
+                            const topic = topics[key];
+                            if (!topic) return null;
+                            return (
+                              <div
+                                key={key}
+                                className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-semibold shadow-sm"
+                                style={{ 
+                                  backgroundColor: topic.color + '90',
+                                  color: '#374151'
+                                }}
+                                title={`${formatTopicLabel(topic.key)}: ${topic.description}`}
+                              >
+                                {key.charAt(0).toUpperCase()}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
                 <div className={`p-4 rounded-lg transition-all duration-200 ${
                   isSegmentActive 
@@ -888,6 +1005,59 @@ export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPa
                   <div className="space-y-3 text-sm leading-relaxed">
                     {segment.paragraphs.map((paragraph, paraIndex) => {
                       const isParaActive = isSegmentActive && paraIndex === activeParagraphIndex;
+                      
+                      // Split by linebreaks (\n\n) to render grouped paragraphs correctly
+                      const textParts = paragraph.text.split('\n\n').filter(t => t.trim());
+                      
+                      if (textParts.length > 1) {
+                        // Multiple sub-paragraphs - render each with proper spacing
+                        let wordOffset = 0;
+                        return (
+                          <div key={paraIndex} className="space-y-3">
+                            {textParts.map((textPart, subIndex) => {
+                              // Find words that belong to this sub-paragraph
+                              const partWords = textPart.trim().split(/\s+/);
+                              const subWords = paragraph.words.slice(wordOffset, wordOffset + partWords.length);
+                              wordOffset += partWords.length;
+                              
+                              return (
+                                <p 
+                                  key={subIndex}
+                                  ref={(el) => {
+                                    if (el && subIndex === 0) paragraphRefs.current.set(`${segmentIndex}-${paraIndex}`, el);
+                                  }}
+                                >
+                                  {subWords.map((word, wordIndex) => {
+                                    const globalWordIndex = wordIndex + (subIndex > 0 ? textParts.slice(0, subIndex).reduce((sum, t) => sum + t.trim().split(/\s+/).length, 0) : 0);
+                                    const isWordActive = isParaActive && globalWordIndex === activeWordIndex;
+                                    
+                                    return (
+                                      <span
+                                        key={wordIndex}
+                                        ref={(el) => {
+                                          if (el) wordRefs.current.set(`${segmentIndex}-${paraIndex}-${globalWordIndex}`, el);
+                                        }}
+                                        onClick={() => seekToTimestamp(word.start)}
+                                        className="relative cursor-pointer hover:opacity-70"
+                                        style={{
+                                          textDecoration: isWordActive ? 'underline' : 'none',
+                                          textDecorationColor: isWordActive ? 'hsl(var(--primary))' : 'transparent',
+                                          textDecorationThickness: '2px',
+                                          textUnderlineOffset: '3px',
+                                        }}
+                                      >
+                                        {word.text}{' '}
+                                      </span>
+                                    );
+                                  })}
+                                </p>
+                              );
+                            })}
+                          </div>
+                        );
+                      }
+                      
+                      // Single paragraph - render normally
                       return (
                         <p 
                           key={paraIndex}

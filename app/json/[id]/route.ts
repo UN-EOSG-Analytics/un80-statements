@@ -153,6 +153,8 @@ export async function GET(
         transcript_id: transcript.transcript_id,
         language: transcript.language_code,
         paragraphs: transcriptParagraphs,
+        topics: transcript.content.topics || {},
+        paragraph_topics: transcript.content.paragraph_topics || {},
       },
     });
     
