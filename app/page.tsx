@@ -4,6 +4,8 @@ import { getScheduleVideos } from "@/lib/un-api";
 import Image from "next/image";
 import Link from "next/link";
 import { Suspense } from "react";
+import { Button } from "@/components/ui/button";
+import { MessageSquare } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -18,13 +20,21 @@ export default async function Home() {
   return (
     <main className="min-h-screen bg-background px-4 sm:px-6">
       <div className="max-w-4xl mx-auto py-8">
-        <Image
-          src="/images/UN Logo_Stacked_English/Colour/UN Logo_Stacked_Colour_English.svg"
-          alt="UN Logo"
-          width={60}
-          height={60}
-          className="h-12 w-auto mb-8"
-        />
+        <div className="flex items-start justify-between mb-8">
+          <Image
+            src="/images/UN Logo_Stacked_English/Colour/UN Logo_Stacked_Colour_English.svg"
+            alt="UN Logo"
+            width={60}
+            height={60}
+            className="h-12 w-auto"
+          />
+          <Link href="/chat">
+            <Button variant="outline" size="sm">
+              <MessageSquare className="h-4 w-4 mr-2" />
+              Chat
+            </Button>
+          </Link>
+        </div>
 
         <header className="mb-12">
           <h1 className="text-4xl text-gray-800">

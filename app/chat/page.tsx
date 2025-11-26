@@ -48,19 +48,10 @@ import {
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import { Loader } from "@/components/ai-elements/loader";
-const models = [
-  {
-    name: "GPT 4o",
-    value: "openai/gpt-4o",
-  },
-  {
-    name: "Deepseek R1",
-    value: "deepseek/deepseek-r1",
-  },
-];
+import { Badge } from "@/components/ui/badge";
+
 const ChatBotDemo = () => {
   const [input, setInput] = useState("");
-  const [model, setModel] = useState<string>(models[0].value);
   const [webSearch, setWebSearch] = useState(false);
   const { messages, sendMessage, status, regenerate } = useChat();
   const handleSubmit = (message: PromptInputMessage) => {
@@ -76,7 +67,7 @@ const ChatBotDemo = () => {
       },
       {
         body: {
-          model: model,
+          model: "claude-sonnet-4-5",
           webSearch: webSearch,
         },
       }
@@ -200,26 +191,9 @@ const ChatBotDemo = () => {
                 <GlobeIcon size={16} />
                 <span>Search</span>
               </PromptInputButton>
-              <PromptInputSelect
-                onValueChange={(value) => {
-                  setModel(value);
-                }}
-                value={model}
-              >
-                <PromptInputSelectTrigger>
-                  <PromptInputSelectValue />
-                </PromptInputSelectTrigger>
-                <PromptInputSelectContent>
-                  {models.map((model) => (
-                    <PromptInputSelectItem
-                      key={model.value}
-                      value={model.value}
-                    >
-                      {model.name}
-                    </PromptInputSelectItem>
-                  ))}
-                </PromptInputSelectContent>
-              </PromptInputSelect>
+              <Badge variant="outline" className="text-xs">
+                Claude Sonnet 4.5
+              </Badge>
             </PromptInputTools>
             <PromptInputSubmit disabled={!input && !status} status={status} />
           </PromptInputFooter>
