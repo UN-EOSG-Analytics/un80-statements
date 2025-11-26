@@ -46,7 +46,7 @@ export function VideoTimeline({ videos }: { videos: Video[] }) {
       {/* Legend */}
       <div className="mb-8 flex items-center gap-6 text-sm text-gray-600">
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+          <div className="w-3 h-3 rounded-full bg-un-blue"></div>
           <span>IAHWG Sessions</span>
         </div>
         <div className="flex items-center gap-2">
@@ -67,7 +67,7 @@ export function VideoTimeline({ videos }: { videos: Video[] }) {
               {/* Colored dot - centered on line */}
               <div 
                 className={`absolute left-[-32px] top-[6px] w-3 h-3 rounded-full ${
-                  event.isIAHWG ? 'bg-blue-500' : 'bg-gray-400'
+                  event.isIAHWG ? 'bg-un-blue' : 'bg-gray-400'
                 }`}
               ></div>
 
@@ -92,7 +92,7 @@ export function VideoTimeline({ videos }: { videos: Video[] }) {
                 {/* Title */}
                 <a
                   href={`/video/${encodeURIComponent(event.video.id)}`}
-                  className="block text-sm font-medium text-gray-800 hover:text-blue-600 transition-colors"
+                  className="block text-sm font-medium text-gray-800 hover:text-un-blue transition-colors"
                 >
                   {event.video.cleanTitle}
                 </a>
