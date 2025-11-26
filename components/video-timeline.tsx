@@ -11,7 +11,6 @@ function parseUNTimestamp(timestamp: string): Date {
 
 interface SessionDetails {
   date: string; // Format: "YYYY-MM-DD" or "Day DD Month YYYY"
-  timeRange?: string; // e.g., "1000-1130"
   location?: string; // e.g., "ECOSOC chamber"
   description?: string;
 }
@@ -20,49 +19,42 @@ interface SessionDetails {
 const SESSION_DETAILS: Record<string, SessionDetails> = {
   "2025-09-16": {
     date: "Tuesday 16 September",
-    timeRange: undefined,
     location: undefined,
     description: "First meeting of the working group",
   },
   // Discovery phase (October-December 2025)
   "2025-10-13": {
     date: "Monday 13 October",
-    timeRange: "1000-1130",
     location: "ECOSOC chamber",
     description:
       '"Mandate Creation" briefing - Panel followed by questions from members of the working group',
   },
   "2025-10-23": {
     date: "Thursday 23 October",
-    timeRange: "1000-1300",
     location: "ECOSOC Chamber",
     description:
       '"Mandate Creation" consultations - Statements from members of the working group',
   },
   "2025-10-30": {
     date: "Thursday 30 October",
-    timeRange: "1500-1630",
     location: "ECOSOC Chamber",
     description:
       '"Mandate Implementation" briefing - Panel followed by questions from members of the working group',
   },
   "2025-11-14": {
     date: "Friday 14 November",
-    timeRange: "1000-1300",
     location: "ECOSOC Chamber",
     description:
       '"Mandate Implementation" consultations - Statements from members of the working group',
   },
   "2025-11-25": {
     date: "Tuesday 25 November",
-    timeRange: "1000-1130",
     location: "CR-1",
     description:
       '"Mandate Review" briefing - Panel followed by questions from members of the working group',
   },
   "2025-12-03": {
     date: "Wednesday 3 December",
-    timeRange: "1000-1300",
     location: "CR4",
     description:
       '"Mandate Review" consultations - Statements from members of the working group',
@@ -70,13 +62,11 @@ const SESSION_DETAILS: Record<string, SessionDetails> = {
   // Production phase (January-March 2026)
   "2026-01-05": {
     date: "5 January",
-    timeRange: undefined,
     location: undefined,
     description: "Updated program of work provided to the IAHWG",
   },
   "2026-03-31": {
     date: "31 March",
-    timeRange: undefined,
     location: undefined,
     description: "Final outcome",
   },
@@ -154,64 +144,84 @@ export function VideoTimeline({ videos }: { videos: Video[] }) {
 
         {/* Events */}
         <div className="space-y-6 pl-8">
-          {events.map((event) => (
-            <div key={event.video.id} className="relative">
-              {/* Colored dot */}
-              <div
-                className={`absolute left-[-32px] top-[6px] w-3 h-3 rounded-full ${
-                  event.isIAHWG ? "bg-un-blue" : "bg-gray-400"
-                }`}
-              ></div>
+          {events.map((event, index) => {
+            // Check if this is the September 16 event (beginning of Working Group)
+            const isSep16 =
+              event.date.toISOString().split("T")[0] === "2025-09-16";
+            const showDivider = isSep16 && index < events.length - 1;
 
-              {/* Content */}
-              <div className="pb-2">
-                {/* Date */}
-                <div className="text-xs text-gray-500 mb-1">
-                  {event.date.toLocaleDateString("en-US", {
-                    weekday: "short",
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                  })}{" "}
-                  {event.date.toLocaleTimeString("en-US", {
-                    hour: "numeric",
-                    minute: "2-digit",
-                    hour12: true,
-                  })}
-                  ‰
-                </div>
+            return (
+              <div key={event.video.id}>
+                <div className="relative">
+                  {/* Colored dot */}
+                  <div
+                    className={`absolute left-[-32px] top-[6px] w-3 h-3 rounded-full ${
+                      event.isIAHWG ? "bg-un-blue" : "bg-gray-400"
+                    }`}
+                  ></div>
 
-                {/* Title */}
-                <a
-                  href={`/video/${encodeURIComponent(event.video.id)}`}
-                  className="block text-sm font-medium text-gray-800 hover:text-un-blue transition-colors"
-                >
-                  {event.video.cleanTitle}
-                </a>
+                  {/* Content */}
+                  <div className="pb-2">
+                    {/* Date */}
+                    <div className="text-xs text-gray-500 mb-1">
+                      {event.date.toLocaleDateString("en-US", {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}{" "}
+                      {event.date.toLocaleTimeString("en-US", {
+                        hour: "numeric",
+                        minute: "2-digit",
+                        hour12: true,
+                      })}
+                    </div>
 
-                {/* Additional Session Details */}
-                {event.sessionDetails && (
-                  <div className="mt-2 text-xs space-y-1">
-                    {event.sessionDetails.timeRange && (
-                      <div className="text-gray-600">
-                        {event.sessionDetails.timeRange}
-                      </div>
-                    )}
-                    {event.sessionDetails.location && (
-                      <div className="text-gray-600">
-                        {event.sessionDetails.location}
-                      </div>
-                    )}
-                    {event.sessionDetails.description && (
-                      <div className="text-gray-700 italic">
-                        {event.sessionDetails.description}
+                    {/* Title */}
+                    <a
+                      href={`/video/${encodeURIComponent(event.video.id)}`}
+                      className="block text-sm font-medium text-gray-800 hover:text-un-blue transition-colors"
+                    >
+                      {event.video.cleanTitle}
+                    </a>
+
+                    {/* Additional Session Details */}
+                    {event.sessionDetails && (
+                      <div className="mt-0.5 text-xs text-gray-600">
+                        {event.sessionDetails.location && (
+                          <span>{event.sessionDetails.location}</span>
+                        )}
+                        {event.sessionDetails.location &&
+                          event.sessionDetails.description && <span> | </span>}
+                        {event.sessionDetails.description && (
+                          <span>{event.sessionDetails.description}</span>
+                        )}
                       </div>
                     )}
                   </div>
+                </div>
+
+                {showDivider && (
+                  <div className="relative flex items-center my-6 w-full">
+                    <div
+                      className="h-px"
+                      style={{ width: "5%", background: "#d1d5db" }}
+                    ></div>
+                    <span className="mx-4 text-xs font-semibold text-un-blue whitespace-nowrap tracking-wide">
+                      Start of the Working Group
+                    </span>
+                    <div
+                      className="h-px flex-grow"
+                      style={{
+                        background:
+                          "linear-gradient(to right, #d1d5db 0%, transparent 100%)",
+                      }}
+                    ></div>
+                  </div>
                 )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
