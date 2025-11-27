@@ -1,17 +1,19 @@
-import { NextResponse } from 'next/server';
-import { getScheduleVideos } from '@/lib/un-api';
-import { scheduleLookbackDays } from '@/lib/config';
+import { NextResponse } from "next/server";
+import { getScheduleVideos } from "@/lib/un-api";
+import { scheduleLookbackDays } from "@/lib/config";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 interface TaggedSentence {
   text: string;
-  speaker: {
-    name?: string;
-    affiliation?: string;
-    affiliation_full?: string;
-    function?: string;
-  } | string;
+  speaker:
+    | {
+        name?: string;
+        affiliation?: string;
+        affiliation_full?: string;
+        function?: string;
+      }
+    | string;
   video_id: string;
   video_title: string;
   video_date: string;
@@ -28,8 +30,8 @@ export async function GET() {
   try {
     // Get all UN80 videos with transcripts
     const allVideos = await getScheduleVideos(scheduleLookbackDays);
-    const un80Videos = allVideos.filter(v => 
-      v.cleanTitle?.toLowerCase().includes('un80') && v.hasTranscript
+    const un80Videos = allVideos.filter(
+      (v) => v.cleanTitle?.toLowerCase().includes("un80") && v.hasTranscript,
     );
 
     // Aggregate tagged sentences by topic
@@ -38,51 +40,56 @@ export async function GET() {
     for (const video of un80Videos) {
       try {
         // Fetch transcript for this video (use relative URL for server-side fetch)
-        const baseUrl = process.env.VERCEL_URL 
-          ? `https://${process.env.VERCEL_URL}` 
-          : 'http://localhost:3000';
-        const response = await fetch(`${baseUrl}/json/${encodeURIComponent(video.id)}`);
+        const baseUrl = process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : "http://localhost:3000";
+        const response = await fetch(
+          `${baseUrl}/json/${encodeURIComponent(video.id)}`,
+        );
         if (!response.ok) continue;
-        
+
         const data = await response.json();
         const transcript = data.transcript;
-        
+
         if (!transcript || !transcript.data) continue;
 
         // Extract un80_topics definitions from transcript level
         const un80TopicsDict = transcript.un80_topics || [];
-        const topicsById: Record<string, { key: string; label: string; description: string }> = {};
+        const topicsById: Record<
+          string,
+          { key: string; label: string; description: string }
+        > = {};
         for (const topic of un80TopicsDict) {
           topicsById[topic.key] = topic;
         }
 
         // Process each statement
         for (const statement of transcript.data) {
-          const speaker = statement.speaker || { name: 'Unknown' };
-          
+          const speaker = statement.speaker || { name: "Unknown" };
+
           for (const paragraph of statement.paragraphs) {
             for (const sentence of paragraph.sentences) {
               // Read un80_topics (already transformed by /json endpoint)
               const un80Topics = sentence.un80_topics || [];
-              
+
               for (const topic of un80Topics) {
                 const topicKey = topic.key;
-                
+
                 if (!topicsMap.has(topicKey)) {
                   topicsMap.set(topicKey, {
                     key: topicKey,
                     label: topic.label || topicKey,
-                    description: topic.description || '',
-                    sentences: []
+                    description: topic.description || "",
+                    sentences: [],
                   });
                 }
-                
+
                 topicsMap.get(topicKey)!.sentences.push({
                   text: sentence.text,
                   speaker,
                   video_id: video.id,
                   video_title: video.cleanTitle || video.title,
-                  video_date: video.date
+                  video_date: video.date,
                 });
               }
             }
@@ -101,16 +108,15 @@ export async function GET() {
     });
 
     const response = NextResponse.json({ topics });
-    response.headers.set('Content-Type', 'application/json; charset=utf-8');
+    response.headers.set("Content-Type", "application/json; charset=utf-8");
     return response;
   } catch (error) {
-    console.error('Topics API error:', error);
+    console.error("Topics API error:", error);
     const response = NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
+      { error: error instanceof Error ? error.message : "Unknown error" },
+      { status: 500 },
     );
-    response.headers.set('Content-Type', 'application/json; charset=utf-8');
+    response.headers.set("Content-Type", "application/json; charset=utf-8");
     return response;
   }
 }
-

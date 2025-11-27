@@ -14,13 +14,13 @@ export default async function Home() {
 
   // Filter videos to only show those including "UN80" (case-insensitive)
   const videos = allVideos.filter((video) =>
-    video.cleanTitle?.toLowerCase().includes("un80")
+    video.cleanTitle?.toLowerCase().includes("un80"),
   );
 
   return (
     <main className="min-h-screen bg-background px-4 sm:px-6">
-      <div className="max-w-4xl mx-auto py-8">
-        <div className="flex items-start justify-between mb-8">
+      <div className="mx-auto max-w-4xl py-8">
+        <div className="mb-8 flex items-start justify-between">
           <Image
             src="/images/UN Logo_Stacked_English/Colour/UN Logo_Stacked_Colour_English.svg"
             alt="UN Logo"
@@ -30,7 +30,7 @@ export default async function Home() {
           />
           <Link href="/chat">
             <Button variant="outline" size="sm">
-              <MessageSquare className="h-4 w-4 mr-2" />
+              <MessageSquare className="mr-2 h-4 w-4" />
               Chat
             </Button>
           </Link>

@@ -51,7 +51,13 @@ import { Loader } from "@/components/ai-elements/loader";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 const ChatBotDemo = () => {
   const [input, setInput] = useState("");
@@ -63,7 +69,10 @@ const ChatBotDemo = () => {
 
   const handlePasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === process.env.NEXT_PUBLIC_CHAT_PASSWORD || password === "un80chat") {
+    if (
+      password === process.env.NEXT_PUBLIC_CHAT_PASSWORD ||
+      password === "un80chat"
+    ) {
       setIsAuthenticated(true);
       setError("");
     } else {
@@ -73,7 +82,7 @@ const ChatBotDemo = () => {
 
   if (!isAuthenticated) {
     return (
-      <div className="max-w-md mx-auto p-6 flex items-center justify-center min-h-screen">
+      <div className="mx-auto flex min-h-screen max-w-md items-center justify-center p-6">
         <Card className="w-full">
           <CardHeader>
             <CardTitle>Chat Access</CardTitle>
@@ -89,7 +98,7 @@ const ChatBotDemo = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full"
                 />
-                {error && <p className="text-sm text-red-500 mt-2">{error}</p>}
+                {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
               </div>
               <Button type="submit" className="w-full">
                 Enter
@@ -117,13 +126,13 @@ const ChatBotDemo = () => {
           model: "claude-sonnet-4-5",
           webSearch: webSearch,
         },
-      }
+      },
     );
     setInput("");
   };
   return (
-    <div className="max-w-4xl mx-auto p-6 relative size-full h-screen">
-      <div className="flex flex-col h-full">
+    <div className="relative mx-auto size-full h-screen max-w-4xl p-6">
+      <div className="flex h-full flex-col">
         <Conversation className="h-full">
           <ConversationContent>
             {messages.map((message) => (
@@ -135,7 +144,7 @@ const ChatBotDemo = () => {
                       <SourcesTrigger
                         count={
                           message.parts.filter(
-                            (part) => part.type === "source-url"
+                            (part) => part.type === "source-url",
                           ).length
                         }
                       />

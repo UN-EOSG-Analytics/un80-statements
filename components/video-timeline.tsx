@@ -111,7 +111,7 @@ export function VideoTimeline({ videos }: { videos: Video[] }) {
 
   if (events.length === 0) {
     return (
-      <div className="text-gray-500 py-12">No UN80 initiative videos found</div>
+      <div className="py-12 text-gray-500">No UN80 initiative videos found</div>
     );
   }
 
@@ -120,11 +120,11 @@ export function VideoTimeline({ videos }: { videos: Video[] }) {
       {/* Legend */}
       <div className="mb-8 flex items-center gap-6 text-sm text-gray-600">
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-un-blue"></div>
+          <div className="h-3 w-3 rounded-full bg-un-blue"></div>
           <span>IAHWG Sessions</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-gray-400"></div>
+          <div className="h-3 w-3 rounded-full bg-gray-400"></div>
           <span>Other Sessions</span>
         </div>
       </div>
@@ -155,7 +155,7 @@ export function VideoTimeline({ videos }: { videos: Video[] }) {
                 <div className="relative">
                   {/* Colored dot */}
                   <div
-                    className={`absolute left-[-32px] top-[6px] w-3 h-3 rounded-full ${
+                    className={`absolute top-[6px] left-[-32px] h-3 w-3 rounded-full ${
                       event.isIAHWG ? "bg-un-blue" : "bg-gray-400"
                     }`}
                   ></div>
@@ -163,7 +163,7 @@ export function VideoTimeline({ videos }: { videos: Video[] }) {
                   {/* Content */}
                   <div className="pb-2">
                     {/* Date */}
-                    <div className="text-xs text-gray-500 mb-1">
+                    <div className="mb-1 text-xs text-gray-500">
                       {event.date.toLocaleDateString("en-US", {
                         weekday: "short",
                         month: "short",
@@ -180,7 +180,7 @@ export function VideoTimeline({ videos }: { videos: Video[] }) {
                     {/* Title */}
                     <a
                       href={`/video/${encodeURIComponent(event.video.id)}`}
-                      className="block text-sm font-medium text-gray-800 hover:text-un-blue transition-colors"
+                      className="block text-sm font-medium text-gray-800 transition-colors hover:text-un-blue"
                     >
                       {event.video.cleanTitle}
                     </a>
@@ -202,12 +202,12 @@ export function VideoTimeline({ videos }: { videos: Video[] }) {
                 </div>
 
                 {showDivider && (
-                  <div className="relative flex items-center my-6 w-full">
+                  <div className="relative my-6 flex w-full items-center">
                     <div
                       className="h-px"
                       style={{ width: "5%", background: "#d1d5db" }}
                     ></div>
-                    <span className="mx-4 text-xs font-semibold text-un-blue whitespace-nowrap tracking-wide">
+                    <span className="mx-4 text-xs font-semibold tracking-wide whitespace-nowrap text-un-blue">
                       Start of the Working Group
                     </span>
                     <div

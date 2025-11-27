@@ -1,23 +1,23 @@
-'use client';
+"use client";
 
-import { useSearchParams, useRouter } from 'next/navigation';
-import Image from 'next/image';
+import { useSearchParams, useRouter } from "next/navigation";
+import Image from "next/image";
 
 export function ViewNavigation() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const currentView = searchParams.get('view') || 'timeline';
+  const currentView = searchParams.get("view") || "timeline";
 
   const setView = (view: string) => {
     const params = new URLSearchParams(searchParams.toString());
-    params.set('view', view);
+    params.set("view", view);
     router.push(`?${params.toString()}`);
   };
 
   return (
     <nav className="border-b border-gray-200 bg-white">
-      <div className="max-w-[1600px] mx-auto px-4 sm:px-6">
-        <div className="flex items-center justify-between h-20">
+      <div className="mx-auto max-w-[1600px] px-4 sm:px-6">
+        <div className="flex h-20 items-center justify-between">
           {/* Logo and Title */}
           <div className="flex items-center gap-6">
             <Image
@@ -33,23 +33,23 @@ export function ViewNavigation() {
           </div>
 
           {/* View Switcher */}
-          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+          <div className="flex gap-1 rounded-lg bg-gray-100 p-1">
             <button
-              onClick={() => setView('timeline')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                currentView === 'timeline'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
+              onClick={() => setView("timeline")}
+              className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+                currentView === "timeline"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
               }`}
             >
               Timeline
             </button>
             <button
-              onClick={() => setView('outline')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                currentView === 'outline'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
+              onClick={() => setView("outline")}
+              className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+                currentView === "outline"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
               }`}
             >
               Outline
@@ -60,4 +60,3 @@ export function ViewNavigation() {
     </nav>
   );
 }
-

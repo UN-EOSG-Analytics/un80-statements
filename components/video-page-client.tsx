@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { VideoPlayer } from './video-player';
-import { TranscriptionPanel } from './transcription-panel';
-import { LiveTranscription } from './live-transcription';
-import type { Video, VideoMetadata } from '@/lib/un-api';
-import Link from 'next/link';
-import Image from 'next/image';
+import { useState } from "react";
+import { VideoPlayer } from "./video-player";
+import { TranscriptionPanel } from "./transcription-panel";
+import { LiveTranscription } from "./live-transcription";
+import type { Video, VideoMetadata } from "@/lib/un-api";
+import Link from "next/link";
+import Image from "next/image";
 
 interface VideoPageClientProps {
   kalturaId: string;
@@ -14,15 +14,25 @@ interface VideoPageClientProps {
   metadata: VideoMetadata;
 }
 
-export function VideoPageClient({ kalturaId, video, metadata }: VideoPageClientProps) {
-  const [player, setPlayer] = useState<{ currentTime: number; play: () => void }>();
-  const isLive = video.status === 'live';
+export function VideoPageClient({
+  kalturaId,
+  video,
+  metadata,
+}: VideoPageClientProps) {
+  const [player, setPlayer] = useState<{
+    currentTime: number;
+    play: () => void;
+  }>();
+  const isLive = video.status === "live";
 
   return (
-    <div className="flex gap-6 h-full overflow-hidden">
-      <div className="w-1/2 h-full overflow-y-auto">
-        <div className="pt-8 pb-8 pr-4">
-          <Link href="/" className="inline-flex items-center gap-2 mb-6 hover:opacity-80">
+    <div className="flex h-full gap-6 overflow-hidden">
+      <div className="h-full w-1/2 overflow-y-auto">
+        <div className="pt-8 pr-4 pb-8">
+          <Link
+            href="/"
+            className="mb-6 inline-flex items-center gap-2 hover:opacity-80"
+          >
             <Image
               src="/images/UN Logo_Horizontal_English/Colour/UN Logo_Horizontal_Colour_English.svg"
               alt="UN Logo"
@@ -33,28 +43,44 @@ export function VideoPageClient({ kalturaId, video, metadata }: VideoPageClientP
           </Link>
 
           <div className="mb-4">
-            <Link href="/" className="text-primary hover:underline text-sm">
+            <Link href="/" className="text-sm text-primary hover:underline">
               ← Back to Schedule
             </Link>
           </div>
-          
+
           <div className="mb-3">
-            <h1 className="text-xl font-semibold mb-2">{video.cleanTitle}</h1>
-            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground mb-2">
+            <h1 className="mb-2 text-xl font-semibold">{video.cleanTitle}</h1>
+            <div className="mb-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
               {video.date && (
                 <>
-                  <span>{new Date(video.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                  <span>
+                    {new Date(video.date).toLocaleDateString("en-US", {
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                    })}
+                  </span>
                   {video.scheduledTime && <span>•</span>}
                 </>
               )}
               {video.scheduledTime && (
                 <>
-                  <span>{new Date(video.scheduledTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}</span>
-                  {(video.body || video.category || video.duration) && <span>•</span>}
+                  <span>
+                    {new Date(video.scheduledTime).toLocaleTimeString("en-US", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      timeZoneName: "short",
+                    })}
+                  </span>
+                  {(video.body || video.category || video.duration) && (
+                    <span>•</span>
+                  )}
                 </>
               )}
               {video.body && <span>{video.body}</span>}
-              {video.body && (video.category || video.duration) && <span>•</span>}
+              {video.body && (video.category || video.duration) && (
+                <span>•</span>
+              )}
               {video.category && <span>{video.category}</span>}
               {video.category && video.duration && <span>•</span>}
               {video.duration && <span>{video.duration}</span>}
@@ -63,13 +89,16 @@ export function VideoPageClient({ kalturaId, video, metadata }: VideoPageClientP
               href={video.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-primary hover:underline text-xs"
+              className="text-xs text-primary hover:underline"
             >
               View on UN Web TV →
             </a>
           </div>
-          
-          <div className="aspect-video bg-black rounded-lg overflow-hidden mb-6" id="video-player">
+
+          <div
+            className="mb-6 aspect-video overflow-hidden rounded-lg bg-black"
+            id="video-player"
+          >
             <VideoPlayer
               kalturaId={kalturaId}
               partnerId={2503451}
@@ -79,59 +108,71 @@ export function VideoPageClient({ kalturaId, video, metadata }: VideoPageClientP
           </div>
 
           {/* Metadata section */}
-          <div className="space-y-4 text-sm pb-8">
+          <div className="space-y-4 pb-8 text-sm">
             {metadata.summary && (
               <div>
-                <h3 className="font-semibold mb-1">Summary</h3>
+                <h3 className="mb-1 font-semibold">Summary</h3>
                 <p className="text-muted-foreground">{metadata.summary}</p>
               </div>
             )}
 
             {metadata.description && (
               <div>
-                <h3 className="font-semibold mb-1">Description</h3>
-                <p className="text-muted-foreground whitespace-pre-line">{metadata.description}</p>
+                <h3 className="mb-1 font-semibold">Description</h3>
+                <p className="whitespace-pre-line text-muted-foreground">
+                  {metadata.description}
+                </p>
               </div>
             )}
 
             {metadata.categories.length > 0 && (
               <div>
-                <h3 className="font-semibold mb-1">Categories</h3>
-                <p className="text-muted-foreground">{metadata.categories.join(' → ')}</p>
+                <h3 className="mb-1 font-semibold">Categories</h3>
+                <p className="text-muted-foreground">
+                  {metadata.categories.join(" → ")}
+                </p>
               </div>
             )}
 
             {metadata.geographicSubject.length > 0 && (
               <div>
-                <h3 className="font-semibold mb-1">Geographic Subject</h3>
-                <p className="text-muted-foreground">{metadata.geographicSubject.join(', ')}</p>
+                <h3 className="mb-1 font-semibold">Geographic Subject</h3>
+                <p className="text-muted-foreground">
+                  {metadata.geographicSubject.join(", ")}
+                </p>
               </div>
             )}
 
             {metadata.subjectTopical.length > 0 && (
               <div>
-                <h3 className="font-semibold mb-1">Topics</h3>
-                <p className="text-muted-foreground">{metadata.subjectTopical.join(', ')}</p>
+                <h3 className="mb-1 font-semibold">Topics</h3>
+                <p className="text-muted-foreground">
+                  {metadata.subjectTopical.join(", ")}
+                </p>
               </div>
             )}
 
             {metadata.corporateName.length > 0 && (
               <div>
-                <h3 className="font-semibold mb-1">Organizations</h3>
-                <p className="text-muted-foreground">{metadata.corporateName.join(', ')}</p>
+                <h3 className="mb-1 font-semibold">Organizations</h3>
+                <p className="text-muted-foreground">
+                  {metadata.corporateName.join(", ")}
+                </p>
               </div>
             )}
 
             {metadata.speakerAffiliation.length > 0 && (
               <div>
-                <h3 className="font-semibold mb-1">Speaker Affiliation</h3>
-                <p className="text-muted-foreground">{metadata.speakerAffiliation.join(', ')}</p>
+                <h3 className="mb-1 font-semibold">Speaker Affiliation</h3>
+                <p className="text-muted-foreground">
+                  {metadata.speakerAffiliation.join(", ")}
+                </p>
               </div>
             )}
 
             {metadata.relatedDocuments.length > 0 && (
               <div>
-                <h3 className="font-semibold mb-1">Related Documents</h3>
+                <h3 className="mb-1 font-semibold">Related Documents</h3>
                 <ul className="space-y-1">
                   {metadata.relatedDocuments.map((doc, i) => (
                     <li key={i}>
@@ -152,16 +193,24 @@ export function VideoPageClient({ kalturaId, video, metadata }: VideoPageClientP
         </div>
       </div>
 
-      <div className="w-1/2 h-full overflow-y-auto">
+      <div className="h-full w-1/2 overflow-y-auto">
         <div className="pt-8 pb-8 pl-4">
-        {isLive ? (
-          <LiveTranscription player={player} isLive={isLive} kalturaId={kalturaId} />
-        ) : (
-          <TranscriptionPanel kalturaId={kalturaId} player={player} video={video} metadata={metadata} />
-        )}
+          {isLive ? (
+            <LiveTranscription
+              player={player}
+              isLive={isLive}
+              kalturaId={kalturaId}
+            />
+          ) : (
+            <TranscriptionPanel
+              kalturaId={kalturaId}
+              player={player}
+              video={video}
+              metadata={metadata}
+            />
+          )}
         </div>
       </div>
     </div>
   );
 }
-

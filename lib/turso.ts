@@ -1,7 +1,7 @@
-import { createClient } from '@libsql/client/web';
-import '@/lib/load-env';
+import { createClient } from "@libsql/client/web";
+import "@/lib/load-env";
 
-const REQUIRED_VARS = ['TURSO_DB', 'TURSO_TOKEN'] as const;
+const REQUIRED_VARS = ["TURSO_DB", "TURSO_TOKEN"] as const;
 
 REQUIRED_VARS.forEach((key) => {
   if (!process.env[key]) {
@@ -114,16 +114,22 @@ interface TranscriptContent {
       confidence: number;
     }>;
   }>;
-  topics?: Record<string, {
-    key: string;
-    label: string;
-    description: string;
-  }>;
-  un80_topics?: Record<string, {
-    key: string;
-    label: string;
-    description: string;
-  }>;
+  topics?: Record<
+    string,
+    {
+      key: string;
+      label: string;
+      description: string;
+    }
+  >;
+  un80_topics?: Record<
+    string,
+    {
+      key: string;
+      label: string;
+      description: string;
+    }
+  >;
 }
 
 export interface Transcript {
@@ -140,15 +146,15 @@ export interface Transcript {
 }
 
 export async function getTranscript(
-  entryId: string, 
-  startTime?: number, 
-  endTime?: number
+  entryId: string,
+  startTime?: number,
+  endTime?: number,
 ): Promise<Transcript | null> {
   await ensureInitialized();
-  
+
   let query: string;
   const args: (string | number)[] = [entryId];
-  
+
   if (startTime !== undefined && endTime !== undefined) {
     query = `
       SELECT * FROM transcripts 
@@ -165,11 +171,11 @@ export async function getTranscript(
       LIMIT 1
     `;
   }
-  
+
   const result = await client.execute({ sql: query, args });
-  
+
   if (result.rows.length === 0) return null;
-  
+
   const row = result.rows[0];
   return {
     entry_id: row.entry_id as string,
@@ -185,15 +191,17 @@ export async function getTranscript(
   };
 }
 
-export async function getAllTranscriptsForEntry(entryId: string): Promise<Transcript[]> {
+export async function getAllTranscriptsForEntry(
+  entryId: string,
+): Promise<Transcript[]> {
   await ensureInitialized();
-  
+
   const result = await client.execute({
-    sql: 'SELECT * FROM transcripts WHERE entry_id = ? AND status = \'completed\' ORDER BY start_time ASC',
-    args: [entryId]
+    sql: "SELECT * FROM transcripts WHERE entry_id = ? AND status = 'completed' ORDER BY start_time ASC",
+    args: [entryId],
   });
-  
-  return result.rows.map(row => ({
+
+  return result.rows.map((row) => ({
     entry_id: row.entry_id as string,
     transcript_id: row.transcript_id as string,
     start_time: row.start_time as number | null,
@@ -215,12 +223,12 @@ export async function saveTranscript(
   audioUrl: string,
   status: string,
   languageCode: string | null,
-  content: TranscriptContent
+  content: TranscriptContent,
 ): Promise<void> {
   await ensureInitialized();
-  
+
   const now = new Date().toISOString();
-  
+
   await client.execute({
     sql: `
       INSERT INTO transcripts (
@@ -235,46 +243,48 @@ export async function saveTranscript(
         updated_at = excluded.updated_at
     `,
     args: [
-      entryId, 
-      transcriptId, 
-      startTime, 
-      endTime, 
-      audioUrl, 
-      status, 
-      languageCode, 
-      JSON.stringify(content), 
-      now, 
-      now
-    ]
+      entryId,
+      transcriptId,
+      startTime,
+      endTime,
+      audioUrl,
+      status,
+      languageCode,
+      JSON.stringify(content),
+      now,
+      now,
+    ],
   });
 }
 
 export async function deleteTranscript(transcriptId: string): Promise<void> {
   await ensureInitialized();
-  
+
   await client.execute({
-    sql: 'DELETE FROM transcripts WHERE transcript_id = ?',
-    args: [transcriptId]
+    sql: "DELETE FROM transcripts WHERE transcript_id = ?",
+    args: [transcriptId],
   });
 }
 
-export async function deleteTranscriptsForEntry(entryId: string): Promise<void> {
+export async function deleteTranscriptsForEntry(
+  entryId: string,
+): Promise<void> {
   await ensureInitialized();
-  
+
   await client.execute({
-    sql: 'DELETE FROM transcripts WHERE entry_id = ?',
-    args: [entryId]
+    sql: "DELETE FROM transcripts WHERE entry_id = ?",
+    args: [entryId],
   });
 }
 
 export async function getAllTranscriptedEntries(): Promise<string[]> {
   await ensureInitialized();
-  
+
   const result = await client.execute(
-    'SELECT DISTINCT entry_id FROM transcripts WHERE status = "completed"'
+    'SELECT DISTINCT entry_id FROM transcripts WHERE status = "completed"',
   );
-  
-  return result.rows.map(row => row.entry_id as string);
+
+  return result.rows.map((row) => row.entry_id as string);
 }
 
 export interface VideoRecord {
@@ -297,11 +307,13 @@ export interface VideoRecord {
   updated_at: string;
 }
 
-export async function saveVideo(video: Omit<VideoRecord, 'created_at' | 'updated_at'>): Promise<void> {
+export async function saveVideo(
+  video: Omit<VideoRecord, "created_at" | "updated_at">,
+): Promise<void> {
   await ensureInitialized();
-  
+
   const now = new Date().toISOString();
-  
+
   await client.execute({
     sql: `
       INSERT INTO videos (
@@ -346,16 +358,18 @@ export async function saveVideo(video: Omit<VideoRecord, 'created_at' | 'updated
   });
 }
 
-export async function getVideoByAssetId(assetId: string): Promise<VideoRecord | null> {
+export async function getVideoByAssetId(
+  assetId: string,
+): Promise<VideoRecord | null> {
   await ensureInitialized();
-  
+
   const result = await client.execute({
-    sql: 'SELECT * FROM videos WHERE asset_id = ?',
+    sql: "SELECT * FROM videos WHERE asset_id = ?",
     args: [assetId],
   });
-  
+
   if (result.rows.length === 0) return null;
-  
+
   const row = result.rows[0];
   return {
     asset_id: row.asset_id as string,
@@ -378,19 +392,21 @@ export async function getVideoByAssetId(assetId: string): Promise<VideoRecord | 
   };
 }
 
-export async function getRecentVideos(daysBack: number = 365): Promise<VideoRecord[]> {
+export async function getRecentVideos(
+  daysBack: number = 365,
+): Promise<VideoRecord[]> {
   await ensureInitialized();
-  
+
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - daysBack);
-  const cutoff = cutoffDate.toISOString().split('T')[0];
-  
+  const cutoff = cutoffDate.toISOString().split("T")[0];
+
   const result = await client.execute({
-    sql: 'SELECT * FROM videos WHERE last_seen >= ? ORDER BY date DESC, scheduled_time DESC',
+    sql: "SELECT * FROM videos WHERE last_seen >= ? ORDER BY date DESC, scheduled_time DESC",
     args: [cutoff],
   });
-  
-  return result.rows.map(row => ({
+
+  return result.rows.map((row) => ({
     asset_id: row.asset_id as string,
     entry_id: row.entry_id as string | null,
     title: row.title as string,
@@ -411,14 +427,16 @@ export async function getRecentVideos(daysBack: number = 365): Promise<VideoReco
   }));
 }
 
-export async function updateVideoEntryId(assetId: string, entryId: string): Promise<void> {
+export async function updateVideoEntryId(
+  assetId: string,
+  entryId: string,
+): Promise<void> {
   await ensureInitialized();
-  
+
   await client.execute({
-    sql: 'UPDATE videos SET entry_id = ?, updated_at = ? WHERE asset_id = ?',
+    sql: "UPDATE videos SET entry_id = ?, updated_at = ? WHERE asset_id = ?",
     args: [entryId, new Date().toISOString(), assetId],
   });
 }
 
 export const db = client;
-

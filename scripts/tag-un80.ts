@@ -1,25 +1,25 @@
 #!/usr/bin/env tsx
 /**
  * tag-un80.ts
- * 
+ *
  * Tags transcript sentences with UN80 topics from actions-and-proposals.json
- * 
+ *
  * This script:
  * 1. Loads all UN80 topics (SG actions, MS proposals, other topics) - 50 total
  * 2. For each transcript, analyzes sentences using Claude to identify relevant topics
  * 3. Stores topic tags in un80_topic_keys (separate from existing topic_keys)
  * 4. Stores topic definitions in un80_topics (separate from existing topics)
- * 
+ *
  * Usage:
  *   npm run tag-un80 -- <asset-id>  # Tag single video
  *   npm run tag-un80 -- all          # Tag all videos with transcripts
  */
-import '../lib/load-env';
-import { getTursoClient, saveTranscript } from '../lib/turso';
-import { resolveEntryId as resolveEntryIdHelper } from '../lib/kaltura-helpers';
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import { AzureOpenAI } from 'openai';
+import "../lib/load-env";
+import { getTursoClient, saveTranscript } from "../lib/turso";
+import { resolveEntryId as resolveEntryIdHelper } from "../lib/kaltura-helpers";
+import { readFileSync } from "fs";
+import { join } from "path";
+import { AzureOpenAI } from "openai";
 
 const usage = `Usage:
   npm run tag-un80 -- <asset|entry-id>
@@ -49,7 +49,12 @@ type Sentence = {
   end: number;
   topic_keys?: string[];
   un80_topic_keys?: string[];
-  words: Array<{ text: string; start: number; end: number; confidence: number }>;
+  words: Array<{
+    text: string;
+    start: number;
+    end: number;
+    confidence: number;
+  }>;
 };
 
 type Statement = {
@@ -57,17 +62,30 @@ type Statement = {
     sentences: Sentence[];
     start: number;
     end: number;
-    words: Array<{ text: string; start: number; end: number; confidence: number }>;
+    words: Array<{
+      text: string;
+      start: number;
+      end: number;
+      confidence: number;
+    }>;
   }>;
   start: number;
   end: number;
-  words: Array<{ text: string; start: number; end: number; confidence: number }>;
+  words: Array<{
+    text: string;
+    start: number;
+    end: number;
+    confidence: number;
+  }>;
 };
 
 type TranscriptContent = {
   statements: Statement[];
   topics?: Record<string, { key: string; label: string; description: string }>;
-  un80_topics?: Record<string, { key: string; label: string; description: string }>;
+  un80_topics?: Record<
+    string,
+    { key: string; label: string; description: string }
+  >;
 };
 
 type TopicItem = {
@@ -98,67 +116,80 @@ const clientPromise = getTursoClient();
 
 async function resolveEntryId(input: string) {
   const decoded = decodeURIComponent(input.trim());
-  if (!decoded) throw new Error('Empty id');
+  if (!decoded) throw new Error("Empty id");
 
   const entryId = await resolveEntryIdHelper(decoded);
   if (!entryId) throw new Error(`Unable to resolve entry ID for: ${input}`);
-  
+
   return entryId;
 }
 
-function loadUN80Topics(): { topics: Record<string, { key: string; label: string; description: string }>; topicsList: TopicItem[] } {
-  const dataPath = join(process.cwd(), 'public', 'data', 'actions-and-proposals.json');
-  const data: TopicsData = JSON.parse(readFileSync(dataPath, 'utf-8'));
-  
-  const topics: Record<string, { key: string; label: string; description: string }> = {};
+function loadUN80Topics(): {
+  topics: Record<string, { key: string; label: string; description: string }>;
+  topicsList: TopicItem[];
+} {
+  const dataPath = join(
+    process.cwd(),
+    "public",
+    "data",
+    "actions-and-proposals.json",
+  );
+  const data: TopicsData = JSON.parse(readFileSync(dataPath, "utf-8"));
+
+  const topics: Record<
+    string,
+    { key: string; label: string; description: string }
+  > = {};
   const topicsList: TopicItem[] = [];
-  
+
   // Load SG actions
   for (const category of Object.values(data.sg_actions)) {
     for (const item of category) {
       topics[item.slug] = {
         key: item.slug,
         label: item.text || item.label || item.slug,
-        description: item.description
+        description: item.description,
       };
       topicsList.push(item);
     }
   }
-  
+
   // Load MS proposals
   for (const category of Object.values(data.ms_proposals)) {
     for (const item of category) {
       topics[item.slug] = {
         key: item.slug,
         label: item.text || item.label || item.slug,
-        description: item.description
+        description: item.description,
       };
       topicsList.push(item);
     }
   }
-  
+
   // Skip "other_topics" for now - focus on numbered proposals only
-  
+
   return { topics, topicsList };
 }
 
 async function tagSentencesWithUN80Topics(
   content: TranscriptContent,
-  topicsList: TopicItem[]
+  topicsList: TopicItem[],
 ): Promise<TranscriptContent> {
   const client = new AzureOpenAI({
     apiKey: process.env.AZURE_OPENAI_API_KEY,
     endpoint: process.env.AZURE_OPENAI_ENDPOINT,
-    apiVersion: '2024-10-21',
-    deployment: 'gpt-5',
+    apiVersion: "2024-10-21",
+    deployment: "gpt-5",
   });
-  
+
   // Build detailed topic list with descriptions for better matching
-  const topicDescriptions = topicsList.map(t => {
-    const label = t.text || t.label || '';
-    return `${t.slug}: ${label}`;
-  }).join('\n');
-  
+  const topicDescriptions = topicsList
+    .map((t) => {
+      const label = t.text || t.label || "";
+      return `${t.slug}: ${label}`;
+    })
+    .join("\n");
+
   // Collect all sentences with indices
   interface SentenceWithMeta {
     sentence: Sentence;
@@ -167,7 +198,7 @@ async function tagSentencesWithUN80Topics(
     sentIdx: number;
     text: string;
   }
-  
+
   const allSentences: SentenceWithMeta[] = [];
   for (let stmtIdx = 0; stmtIdx < content.statements.length; stmtIdx++) {
     const statement = content.statements[stmtIdx];
@@ -180,26 +211,34 @@ async function tagSentencesWithUN80Topics(
           statementIdx: stmtIdx,
           paraIdx,
           sentIdx,
-          text: sent.text
+          text: sent.text,
         });
       }
     }
   }
-  
-  console.log(`  → Tagging ${allSentences.length} sentences with ${topicsList.length} UN80 topics (SG actions + MS proposals only)...`);
-  
+
+  console.log(
+    `  → Tagging ${allSentences.length} sentences with ${topicsList.length} UN80 topics (SG actions + MS proposals only)...`,
+  );
+
   // Tag each sentence in parallel
   const tasks = allSentences.map(async (item, globalIdx) => {
     // Context: 2 sentences before and after
-    const contextBefore = allSentences.slice(Math.max(0, globalIdx - 2), globalIdx);
-    const contextAfter = allSentences.slice(globalIdx + 1, Math.min(allSentences.length, globalIdx + 3));
-    
+    const contextBefore = allSentences.slice(
+      Math.max(0, globalIdx - 2),
+      globalIdx,
+    );
+    const contextAfter = allSentences.slice(
+      globalIdx + 1,
+      Math.min(allSentences.length, globalIdx + 3),
+    );
+
     const contextText = [
       ...contextBefore.map((s, i) => `[${i - contextBefore.length}] ${s.text}`),
       `[CURRENT] ${item.text}`,
       ...contextAfter.map((s, i) => `[+${i + 1}] ${s.text}`),
-    ].join('\n');
-    
+    ].join("\n");
+
     const systemPrompt = `You are analyzing UN General Assembly meeting transcripts about the UN80 reform initiative.
 
 Your task: Tag the [CURRENT] sentence with relevant UN80 reform proposals/actions.
@@ -225,56 +264,68 @@ Which UN80 reform topics apply to the [CURRENT] sentence? Return slugs only:`;
 
     try {
       const response = await client.chat.completions.create({
-        model: 'gpt-5',
-        messages: [{
-          role: 'system',
-          content: systemPrompt
-        }, {
-          role: 'user',
-          content: userMessage
-        }],
+        model: "gpt-5",
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: userMessage,
+          },
+        ],
       });
-      
-      const text = (response.choices[0]?.message?.content || '').trim();
-      
-      if (text.toLowerCase() === 'none' || !text) {
+
+      const text = (response.choices[0]?.message?.content || "").trim();
+
+      if (text.toLowerCase() === "none" || !text) {
         item.sentence.un80_topic_keys = [];
       } else {
-        item.sentence.un80_topic_keys = text.split(',').map(t => t.trim()).filter(Boolean);
+        item.sentence.un80_topic_keys = text
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean);
       }
     } catch (error) {
-      console.error(`  ✗ Failed to tag sentence ${globalIdx}:`, error instanceof Error ? error.message : error);
+      console.error(
+        `  ✗ Failed to tag sentence ${globalIdx}:`,
+        error instanceof Error ? error.message : error,
+      );
       item.sentence.un80_topic_keys = [];
     }
   });
-  
+
   await Promise.all(tasks);
-  
+
   // Count tagged sentences
-  const taggedCount = allSentences.filter(s => s.sentence.un80_topic_keys && s.sentence.un80_topic_keys.length > 0).length;
-  console.log(`  ✓ Tagged ${taggedCount}/${allSentences.length} sentences with UN80 topics`);
-  
+  const taggedCount = allSentences.filter(
+    (s) => s.sentence.un80_topic_keys && s.sentence.un80_topic_keys.length > 0,
+  ).length;
+  console.log(
+    `  ✓ Tagged ${taggedCount}/${allSentences.length} sentences with UN80 topics`,
+  );
+
   return content;
 }
 
 function parseContent(row: TranscriptRow): TranscriptContent {
-  const content = typeof row.content === 'string'
-    ? JSON.parse(row.content)
-    : row.content;
+  const content =
+    typeof row.content === "string" ? JSON.parse(row.content) : row.content;
   return content as TranscriptContent;
 }
 
 async function loadTargets(arg: string) {
-  if (arg.toLowerCase() === 'all') {
+  if (arg.toLowerCase() === "all") {
     const client = await clientPromise;
-    const rows = await client.execute({ 
-      sql: 'SELECT DISTINCT entry_id FROM transcripts WHERE status = \'completed\' AND start_time IS NULL AND end_time IS NULL' 
+    const rows = await client.execute({
+      sql: "SELECT DISTINCT entry_id FROM transcripts WHERE status = 'completed' AND start_time IS NULL AND end_time IS NULL",
     });
-    return rows.rows.map(row => row.entry_id as string);
+    return rows.rows.map((row) => row.entry_id as string);
   }
-  if (arg.toLowerCase() === 'iahwg') {
+  if (arg.toLowerCase() === "iahwg") {
     const client = await clientPromise;
-    const rows = await client.execute({ 
+    const rows = await client.execute({
       sql: `SELECT DISTINCT t.entry_id 
             FROM transcripts t
             JOIN videos v ON t.entry_id = v.entry_id
@@ -283,9 +334,9 @@ async function loadTargets(arg: string) {
               AND t.end_time IS NULL
               AND (v.clean_title LIKE '%Informal Ad hoc Working Group on UN80%'
                    OR v.clean_title LIKE '%Informal Ad hoc Working Group on Mandate Implementation%')
-            ORDER BY v.date DESC`
+            ORDER BY v.date DESC`,
     });
-    return rows.rows.map(row => row.entry_id as string);
+    return rows.rows.map((row) => row.entry_id as string);
   }
   return [await resolveEntryId(arg)];
 }
@@ -293,7 +344,7 @@ async function loadTargets(arg: string) {
 async function loadTranscripts(entryId: string) {
   const client = await clientPromise;
   const result = await client.execute({ sql: SINGLE_QUERY, args: [entryId] });
-  return result.rows.map(row => ({
+  return result.rows.map((row) => ({
     transcript_id: row.transcript_id as string,
     entry_id: row.entry_id as string,
     content: row.content as string,
@@ -305,10 +356,12 @@ async function loadTranscripts(entryId: string) {
 }
 
 async function run() {
-  console.log('Loading UN80 topics (SG actions + MS proposals only)...');
+  console.log("Loading UN80 topics (SG actions + MS proposals only)...");
   const { topics: topicsMap, topicsList } = loadUN80Topics();
-  console.log(`Loaded ${topicsList.length} topics (excluding "other topics")\n`);
-  
+  console.log(
+    `Loaded ${topicsList.length} topics (excluding "other topics")\n`,
+  );
+
   const targets = await loadTargets(rawArg);
   console.log(`Processing ${targets.length} transcript(s)...\n`);
 
@@ -317,29 +370,38 @@ async function run() {
     try {
       // Load transcript one at a time to avoid memory issues
       const transcripts = await loadTranscripts(entryId);
-      
+
       if (transcripts.length === 0) {
-        console.warn(`[${completed + 1}/${targets.length}] No transcript found for ${entryId}`);
+        console.warn(
+          `[${completed + 1}/${targets.length}] No transcript found for ${entryId}`,
+        );
         completed++;
         continue;
       }
-      
+
       const row = transcripts[0];
       const content = parseContent(row);
-      
+
       if (!content.statements?.length) {
-        console.warn(`[${completed + 1}/${targets.length}] Skipping ${entryId}: no statements`);
+        console.warn(
+          `[${completed + 1}/${targets.length}] Skipping ${entryId}: no statements`,
+        );
         completed++;
         continue;
       }
-      
-      console.log(`[${completed + 1}/${targets.length}] Processing ${entryId}...`);
-      
-      const taggedContent = await tagSentencesWithUN80Topics(content, topicsList);
-      
+
+      console.log(
+        `[${completed + 1}/${targets.length}] Processing ${entryId}...`,
+      );
+
+      const taggedContent = await tagSentencesWithUN80Topics(
+        content,
+        topicsList,
+      );
+
       // Add un80_topics to content
       taggedContent.un80_topics = topicsMap;
-      
+
       // Save back to database
       await saveTranscript(
         row.entry_id,
@@ -347,16 +409,19 @@ async function run() {
         row.start_time,
         row.end_time,
         row.audio_url,
-        'completed',
+        "completed",
         row.language_code,
-        taggedContent
+        taggedContent,
       );
-      
+
       console.log(`  ✓ Tagged and saved ${entryId} (${row.transcript_id})\n`);
     } catch (error) {
-      console.error(`[${completed + 1}/${targets.length}] Failed to process ${entryId}:`, error);
+      console.error(
+        `[${completed + 1}/${targets.length}] Failed to process ${entryId}:`,
+        error,
+      );
     }
-    
+
     completed++;
   }
 
@@ -364,8 +429,7 @@ async function run() {
   process.exit(0);
 }
 
-run().catch(error => {
-  console.error('Tag UN80 failed:', error);
+run().catch((error) => {
+  console.error("Tag UN80 failed:", error);
   process.exit(1);
 });
-

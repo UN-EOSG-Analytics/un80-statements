@@ -14,14 +14,14 @@ export async function POST(req: Request) {
     model: string;
     webSearch: boolean;
   } = await req.json();
-  
+
   const result = streamText({
-    model: webSearch ? "perplexity/sonar" : anthropic('claude-sonnet-4-5'),
+    model: webSearch ? "perplexity/sonar" : anthropic("claude-sonnet-4-5"),
     messages: convertToModelMessages(messages),
     system:
       "You are a helpful assistant that can answer questions and help with tasks",
   });
-  
+
   // send sources and reasoning back to the client
   return result.toUIMessageStreamResponse({
     sendSources: true,
