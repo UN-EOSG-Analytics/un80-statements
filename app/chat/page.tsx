@@ -23,19 +23,14 @@ import {
   PromptInputButton,
   PromptInputHeader,
   type PromptInputMessage,
-  PromptInputSelect,
-  PromptInputSelectContent,
-  PromptInputSelectItem,
-  PromptInputSelectTrigger,
-  PromptInputSelectValue,
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputFooter,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
-import { Fragment, useState } from "react";
+import { useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { CopyIcon, GlobeIcon, RefreshCcwIcon } from "lucide-react";
+import { CopyIcon, RefreshCcwIcon } from "lucide-react";
 import {
   Source,
   Sources,
@@ -61,7 +56,6 @@ import {
 
 const ChatBotDemo = () => {
   const [input, setInput] = useState("");
-  const [webSearch, setWebSearch] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -124,7 +118,6 @@ const ChatBotDemo = () => {
       {
         body: {
           model: "claude-sonnet-4-5",
-          webSearch: webSearch,
         },
       },
     );
@@ -240,13 +233,6 @@ const ChatBotDemo = () => {
                   <PromptInputActionAddAttachments />
                 </PromptInputActionMenuContent>
               </PromptInputActionMenu>
-              <PromptInputButton
-                variant={webSearch ? "default" : "ghost"}
-                onClick={() => setWebSearch(!webSearch)}
-              >
-                <GlobeIcon size={16} />
-                <span>Search</span>
-              </PromptInputButton>
               <Badge variant="outline" className="text-xs">
                 Claude Sonnet 4.5
               </Badge>

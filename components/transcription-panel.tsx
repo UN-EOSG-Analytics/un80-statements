@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type { SpeakerMapping } from "@/lib/speakers";
 import type { Video, VideoMetadata } from "@/lib/un-api";
 import { getCountryName } from "@/lib/country-lookup";
@@ -80,7 +80,7 @@ export function TranscriptionPanel({
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number>(-1);
   const [showCopied, setShowCopied] = useState(false);
   const [speakerMappings, setSpeakerMappings] = useState<SpeakerMapping>({});
-  const [identifyingSpeakers, setIdentifyingSpeakers] = useState(false);
+  const [identifyingSpeakers] = useState(false);
   const [countryNames, setCountryNames] = useState<Map<string, string>>(
     new Map(),
   );
@@ -501,7 +501,7 @@ export function TranscriptionPanel({
 
     // Get all topic labels for column headers
     const topicList = Object.values(topics);
-    const topicKeys = topicList.map((t) => `topic_${t.key}`);
+    // const topicKeys = topicList.map((t) => `topic_${t.key}`);
 
     // Define base columns
     const baseColumns = [

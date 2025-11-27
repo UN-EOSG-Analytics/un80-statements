@@ -76,14 +76,12 @@ function TreeItem({
   isFullMode: boolean;
 }) {
   const [isExpanded, setIsExpanded] = useState(node.level < expandToLevel);
-  const [contentExpanded, setContentExpanded] = useState(isFullMode);
   const hasChildren = node.children && node.children.length > 0;
   const hasContent = node.content && node.content.length > 0;
 
   // Reset expansion when expandToLevel changes
   useEffect(() => {
     setIsExpanded(node.level < expandToLevel);
-    setContentExpanded(isFullMode);
   }, [resetKey, node.level, expandToLevel, isFullMode]);
 
   const handleToggle = () => {
