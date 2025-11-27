@@ -31,7 +31,7 @@ export default async function Home() {
           <Link href="/chat">
             <Button variant="outline" size="sm">
               <MessageSquare className="mr-2 h-4 w-4" />
-              Chat
+              <span className="font-bold">UN80</span>Chat
             </Button>
           </Link>
         </div>

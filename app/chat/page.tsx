@@ -59,7 +59,12 @@ import { DEFAULT_SYSTEM_PROMPT } from "@/lib/constants";
 
 const ChatBotDemo = () => {
   const [input, setInput] = useState("");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("chat_authenticated") === "true";
+    }
+    return false;
+  });
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
@@ -72,6 +77,7 @@ const ChatBotDemo = () => {
       password === "un80chat"
     ) {
       setIsAuthenticated(true);
+      localStorage.setItem("chat_authenticated", "true");
       setError("");
     } else {
       setError("Incorrect password");
@@ -145,8 +151,8 @@ const ChatBotDemo = () => {
       </header>
 
       <div className="relative mx-auto size-full min-h-screen max-w-6xl px-4 pt-24 sm:px-6">
-        <div className="flex flex-col pb-32">
-          <div className="space-y-4">
+        <div className="flex flex-col pb-48">
+          <div className="space-y-4 pb-8">
             {messages.map((message) => (
               <div key={message.id}>
                 {message.role === "assistant" &&
