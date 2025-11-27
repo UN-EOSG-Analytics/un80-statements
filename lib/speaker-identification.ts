@@ -357,6 +357,7 @@ ${contextParts.join("\n\n")}`,
   return topicsRecord;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function tagParagraphsWithTopics(
   paragraphs: ParagraphInput[],
   topics: Record<string, { key: string; description: string; color: string }>,

@@ -20,7 +20,6 @@ import {
   PromptInputAttachment,
   PromptInputAttachments,
   PromptInputBody,
-  PromptInputButton,
   PromptInputHeader,
   type PromptInputMessage,
   PromptInputSubmit,
