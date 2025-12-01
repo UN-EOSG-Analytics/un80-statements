@@ -92,6 +92,9 @@ export function RagSearch() {
   const [copiedRow, setCopiedRow] = useState<number | null>(null);
   const [copiedTable, setCopiedTable] = useState(false);
   const [isSearchActive, setIsSearchActive] = useState(false);
+  const [currentTopK, setCurrentTopK] = useState(50);
+  const [selectedTopK, setSelectedTopK] = useState(50);
+  const [lastQuery, setLastQuery] = useState("");
 
   // Load all data on mount
   useEffect(() => {
@@ -120,7 +123,13 @@ export function RagSearch() {
   }, []);
 
   const uniqueDates = useMemo(() => {
-    return Array.from(new Set(filteredData.map((r) => r.sessionDate))).filter(
+    return Array.from(new Set(filteredData.map((r) => r.sessionDate)))
+      .filter(Boolean)
+      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+  }, [filteredData]);
+
+  const uniqueSessionTitles = useMemo(() => {
+    return Array.from(new Set(filteredData.map((r) => r.sessionTitle))).filter(
       Boolean,
     );
   }, [filteredData]);
@@ -151,18 +160,39 @@ export function RagSearch() {
         : []),
       columnHelper.accessor("sessionTitle", {
         header: "Session Title",
-        cell: (info) => info.getValue(),
+        cell: (info) => (
+          <span className="text-muted-foreground/70">{info.getValue()}</span>
+        ),
         enableColumnFilter: true,
         meta: {
-          filterComponent: (props: {
+          filterComponent: ({
+            column,
+          }: {
             column: Column<RagSearchResult, string>;
-          }) => <TextFilter {...props} placeholder="Filter session" />,
+          }) => (
+            <select
+              className="w-full rounded-md border border-input px-2 py-1 text-xs focus:border-un-blue focus:outline-none"
+              value={(column.getFilterValue() as string) ?? ""}
+              onChange={(event) =>
+                column.setFilterValue(event.target.value || undefined)
+              }
+            >
+              <option value="">All</option>
+              {uniqueSessionTitles.map((title) => (
+                <option key={title} value={title}>
+                  {title}
+                </option>
+              ))}
+            </select>
+          ),
         },
         size: 220,
       }),
       columnHelper.accessor("sessionDate", {
         header: "Date",
-        cell: (info) => info.getValue(),
+        cell: (info) => (
+          <span className="text-muted-foreground/70">{info.getValue()}</span>
+        ),
         enableColumnFilter: true,
         meta: {
           filterComponent: ({
@@ -190,35 +220,49 @@ export function RagSearch() {
       }),
       columnHelper.accessor("speakerAffiliationName", {
         header: "Affiliation",
-        cell: (info) => info.getValue() || "—",
+        cell: (info) => (
+          <span className="text-muted-foreground/70">
+            {info.getValue() || "—"}
+          </span>
+        ),
         enableColumnFilter: true,
         meta: {
           filterComponent: ({
             column,
           }: {
             column: Column<RagSearchResult, string>;
-          }) => (
-            <select
-              className="w-full rounded-md border border-input px-2 py-1 text-xs focus:border-un-blue focus:outline-none"
-              value={(column.getFilterValue() as string) ?? ""}
-              onChange={(event) =>
-                column.setFilterValue(event.target.value || undefined)
-              }
-            >
-              <option value="">All</option>
-              {uniqueAffiliations.map((affiliation) => (
-                <option key={affiliation} value={affiliation}>
-                  {affiliation}
-                </option>
-              ))}
-            </select>
-          ),
+          }) => {
+            const value = (column.getFilterValue() as string) ?? "";
+            return (
+              <div className="relative">
+                <input
+                  list="affiliation-list"
+                  className="w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs focus:border-un-blue focus:outline-none"
+                  value={value}
+                  onChange={(event) =>
+                    column.setFilterValue(event.target.value || undefined)
+                  }
+                  placeholder="Filter affiliation"
+                  onClick={(event) => event.stopPropagation()}
+                />
+                <datalist id="affiliation-list">
+                  {uniqueAffiliations.map((affiliation) => (
+                    <option key={affiliation} value={affiliation} />
+                  ))}
+                </datalist>
+              </div>
+            );
+          },
         },
         size: 160,
       }),
       columnHelper.accessor("speakerName", {
         header: "Speaker",
-        cell: (info) => info.getValue() || "Unknown",
+        cell: (info) => (
+          <span className="text-muted-foreground/70">
+            {info.getValue() || "Unknown"}
+          </span>
+        ),
         enableColumnFilter: true,
         meta: {
           filterComponent: (props: {
@@ -243,7 +287,7 @@ export function RagSearch() {
           };
           return (
             <div className="space-y-1">
-              <p className="text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground">
+              <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">
                 {displayText}
               </p>
               <Button
@@ -268,7 +312,13 @@ export function RagSearch() {
         size: 420,
       }),
     ],
-    [uniqueAffiliations, uniqueDates, copiedRow, isSearchActive],
+    [
+      uniqueAffiliations,
+      uniqueDates,
+      uniqueSessionTitles,
+      copiedRow,
+      isSearchActive,
+    ],
   );
 
   const table = useReactTable({
@@ -291,6 +341,63 @@ export function RagSearch() {
     },
   });
 
+  // Load more results when approaching the end of current data during semantic search
+  useEffect(() => {
+    const loadMoreResults = async () => {
+      if (!isSearchActive || !lastQuery) return;
+
+      const paginationState = table.getState().pagination;
+      const currentPage = paginationState.pageIndex;
+      const pageSize = paginationState.pageSize;
+      const approximateNeededResults = (currentPage + 2) * pageSize; // Load ahead by 2 pages
+
+      if (approximateNeededResults > currentTopK && currentTopK < 200) {
+        const newTopK = Math.min(currentTopK + 50, 200);
+        setCurrentTopK(newTopK);
+
+        // Preserve current filters
+        const currentFilters = columnFilters.reduce(
+          (acc, filter) => {
+            const columnId = filter.id;
+            const value = filter.value as string;
+            if (value) {
+              if (columnId === "sessionDate") acc.sessionDate = value;
+              else if (columnId === "sessionTitle") acc.sessionTitle = value;
+              else if (columnId === "speakerAffiliationName")
+                acc.speakerAffiliationName = value;
+              else if (columnId === "speakerName") acc.speakerName = value;
+            }
+            return acc;
+          },
+          {} as Record<string, string>,
+        );
+
+        try {
+          const response = await fetch("/api/search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              query: lastQuery,
+              topK: newTopK,
+              filters:
+                Object.keys(currentFilters).length > 0
+                  ? currentFilters
+                  : undefined,
+            }),
+          });
+          const payload: SearchResponse = await response.json();
+          if (response.ok) {
+            setFilteredData(payload.data ?? []);
+          }
+        } catch (loadError) {
+          console.error("Failed to load more results", loadError);
+        }
+      }
+    };
+
+    loadMoreResults();
+  }, [table, isSearchActive, lastQuery, currentTopK, columnFilters]);
+
   const handleSearch = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!query.trim()) {
@@ -305,14 +412,36 @@ export function RagSearch() {
 
     setIsSearching(true);
     setError(null);
-    setColumnFilters([]);
-    setGlobalFilter("");
+    // Keep current column filters active
+    const currentFilters = columnFilters.reduce(
+      (acc, filter) => {
+        const columnId = filter.id;
+        const value = filter.value as string;
+        if (value) {
+          if (columnId === "sessionDate") acc.sessionDate = value;
+          else if (columnId === "sessionTitle") acc.sessionTitle = value;
+          else if (columnId === "speakerAffiliationName")
+            acc.speakerAffiliationName = value;
+          else if (columnId === "speakerName") acc.speakerName = value;
+        }
+        return acc;
+      },
+      {} as Record<string, string>,
+    );
+
+    setCurrentTopK(selectedTopK);
+    setLastQuery(query.trim());
 
     try {
       const response = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: query.trim(), topK: 200 }),
+        body: JSON.stringify({
+          query: query.trim(),
+          topK: selectedTopK,
+          filters:
+            Object.keys(currentFilters).length > 0 ? currentFilters : undefined,
+        }),
       });
       const payload: SearchResponse = await response.json();
       if (!response.ok) {
@@ -371,7 +500,7 @@ export function RagSearch() {
   return (
     <div className="space-y-16">
       {/* Search bar outside the box */}
-      <form onSubmit={handleSearch} className="space-y-2">
+      <form onSubmit={handleSearch} className="">
         <div className="flex items-center gap-2">
           <h2 className="text-xl font-semibold">Semantic Search</h2>
           <TooltipProvider delayDuration={0}>
@@ -389,31 +518,85 @@ export function RagSearch() {
             </Tooltip>
           </TooltipProvider>
         </div>
-        <div className="relative">
-          <Input
-            id="query"
-            placeholder="e.g. voluntary registry for mandates"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                handleSearch(
-                  event as unknown as React.FormEvent<HTMLFormElement>,
-                );
-              }
-            }}
-            className="h-14 border-2 border-un-blue/30 pr-12 text-base focus-visible:border-un-blue focus-visible:ring-0 focus-visible:ring-offset-0"
-          />
-          {isSearching ? (
-            <Loader2Icon className="absolute top-1/2 right-4 size-5 -translate-y-1/2 animate-spin text-un-blue" />
-          ) : (
-            <SearchIcon className="absolute top-1/2 right-4 size-5 -translate-y-1/2 text-un-blue/60" />
-          )}
+        <div className="flex items-end gap-3">
+          <div className="relative flex-1">
+            <Input
+              id="query"
+              placeholder="e.g. comprehensive mandate registries"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleSearch(
+                    event as unknown as React.FormEvent<HTMLFormElement>,
+                  );
+                }
+              }}
+              className="h-14 border-2 border-un-blue/30 pr-12 text-base focus-visible:border-un-blue focus-visible:ring-0 focus-visible:ring-offset-0"
+            />
+            {isSearching ? (
+              <Loader2Icon className="absolute top-1/2 right-4 size-5 -translate-y-1/2 animate-spin text-un-blue" />
+            ) : (
+              <SearchIcon className="absolute top-1/2 right-4 size-5 -translate-y-1/2 text-un-blue/60" />
+            )}
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="topK" className="text-xs text-muted-foreground">
+              Top results
+            </label>
+            <select
+              id="topK"
+              value={selectedTopK}
+              onChange={(event) => setSelectedTopK(Number(event.target.value))}
+              className="h-14 rounded-md border-2 border-un-blue/30 bg-background px-3 text-base focus:border-un-blue focus:outline-none"
+            >
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value={200}>200</option>
+            </select>
+          </div>
         </div>
         {error && (
           <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
+          </div>
+        )}
+        {(isSearchActive || columnFilters.length > 0) && (
+          <div className="rounded-md border border-un-blue/30 bg-un-blue/5 px-4 py-3 text-sm space-y-1">
+            <div>
+              <span className="font-semibold text-un-blue">Active filters:</span>{" "}
+              {isSearchActive && (
+                <span>
+                  Semantic search: &quot;{lastQuery}&quot;
+                  {columnFilters.length > 0 && ", "}
+                </span>
+              )}
+              {columnFilters.map((filter, idx) => {
+                const columnId = filter.id;
+                const value = filter.value as string;
+                let label = "";
+                if (columnId === "sessionDate") label = `Date: ${value}`;
+                else if (columnId === "sessionTitle") label = `Session: ${value}`;
+                else if (columnId === "speakerAffiliationName")
+                  label = `Affiliation: ${value}`;
+                else if (columnId === "speakerName") label = `Speaker: ${value}`;
+                else if (columnId === "text" || columnId === "contextText")
+                  label = `Text contains: ${value}`;
+                return (
+                  <span key={columnId}>
+                    {label}
+                    {idx < columnFilters.length - 1 && ", "}
+                  </span>
+                );
+              })}
+            </div>
+            {isSearchActive && (
+              <p className="text-xs text-muted-foreground">
+                Showing top {currentTopK} semantically similar results{columnFilters.length > 0 ? " within filtered subset" : " from all statements"}
+              </p>
+            )}
           </div>
         )}
       </form>
