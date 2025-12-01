@@ -75,6 +75,8 @@ if exceed_count > 0:
 df["text_num_tokens"].agg(["min", "mean", "std", "median", "max"]).round(2)
 
 
+# FIXME: add async or batching for faster run!
+
 @memory.cache
 def get_embedding(text: str, model: str = EMBEDDING_MODEL) -> list[float]:
     response = openai_client.embeddings.create(input=text, model=model)
@@ -92,6 +94,13 @@ df["embedding"] = embeddings
 len(df)
 
 df.columns
+
+# Check for any missing embeddings
+missing_embeddings = df["embedding"].isnull().sum()
+if missing_embeddings > 0:
+    print(f"Warning: {missing_embeddings} rows are missing embeddings.")
+else:
+    print("All rows have embeddings.")
 
 
 #######################################
