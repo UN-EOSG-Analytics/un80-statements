@@ -4,6 +4,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 import libsql
+import pandas as pd
 import pycountry
 from dotenv import load_dotenv
 from joblib import Memory
@@ -124,11 +125,11 @@ def fetch_all_sessions():
     """Fetch data for all IAHWG sessions."""
     sessions_data = []
 
-    for asset_id_url, session_num, description, date in tqdm(
+    for asset_id_url, session_num, title, date in tqdm(
         IAHWG_SESSIONS, desc="Fetching sessions"
     ):
         asset_id = unquote(asset_id_url)
-        tqdm.write(f"Loading: {asset_id} - {session_num} - {description}")
+        tqdm.write(f"Loading: {asset_id} - {session_num} - {title}")
 
         data = fetch_session_data(asset_id)
         if data:
@@ -136,7 +137,7 @@ def fetch_all_sessions():
                 {
                     "asset_id": asset_id,
                     "session_num": session_num,
-                    "description": description,
+                    "title": title,
                     "date": date,
                     "data": data,
                 }
@@ -147,7 +148,9 @@ def fetch_all_sessions():
 
 def format_session_markdown(session):
     """Convert single session data to markdown format."""
-    markdown = f"# {session['session_num']} | {session['description']} ({session['date']}) \n\n"
+    markdown = (
+        f"# {session['session_num']} | {session['title']} ({session['date']}) \n\n"
+    )
 
     transcript = session["data"]["transcript"]
     speakers = session["data"]["speakers"]
@@ -182,7 +185,7 @@ def format_as_markdown(sessions_data):
     markdown = "# IAHWG Session Transcripts\n\n"
 
     for session in sessions_data:
-        markdown += f"## {session['session_num']}: {session['description']}\n\n"
+        markdown += f"## {session['session_num']}: {session['title']}\n\n"
 
         transcript = session["data"]["transcript"]
         speakers = session["data"]["speakers"]
@@ -214,19 +217,82 @@ def format_as_markdown(sessions_data):
     return markdown
 
 
+def create_sentences_dataframe(sessions_data):
+    """Create a pandas DataFrame with one sentence per row, including all metadata."""
+    rows = []
+
+    for session in sessions_data:
+        # Session metadata
+        asset_id = session["asset_id"]
+        session_num = session["session_num"]
+        session_title = session["title"]
+        session_date = session["date"]
+
+        transcript = session["data"]["transcript"]
+        speakers = session["data"]["speakers"]
+
+        for statement_idx, statement in enumerate(transcript["statements"]):
+            speaker = speakers.get(str(statement_idx), {})
+
+            # Speaker metadata
+            speaker_affiliation = speaker.get("affiliation", "")
+            speaker_affiliation_name = (
+                get_country_name(speaker_affiliation) if speaker_affiliation else ""
+            )
+            speaker_name = speaker.get("name", "")
+            speaker_function = speaker.get("function", "")
+            speaker_group = speaker.get("group", "")
+
+            # Process each sentence in the statement
+            for paragraph_idx, paragraph in enumerate(statement["paragraphs"]):
+                for sentence_idx, sentence in enumerate(paragraph["sentences"]):
+                    rows.append(
+                        {
+                            # Session metadata
+                            "asset_id": asset_id,
+                            "session_num": session_num,
+                            "session_title": session_title,
+                            "session_date": session_date,
+                            # Statement/Speaker metadata
+                            "statement_idx": statement_idx,
+                            "speaker_affiliation_code": speaker_affiliation,
+                            "speaker_affiliation_name": speaker_affiliation_name,
+                            "speaker_name": speaker_name,
+                            "speaker_function": speaker_function,
+                            "speaker_group": speaker_group,
+                            # Sentence position metadata
+                            "paragraph_idx": paragraph_idx,
+                            "sentence_idx": sentence_idx,
+                            # Sentence content
+                            "text": sentence["text"],
+                        }
+                    )
+
+    return pd.DataFrame(rows)
+
+
 if __name__ == "__main__":
     sessions = fetch_all_sessions()
     print(f"\nFetched {len(sessions)} sessions")
 
+    # Create pandas DataFrame with one sentence per row
+    df = create_sentences_dataframe(sessions)
+    print(f"\nCreated DataFrame with {len(df)} sentences.")
+
+    # Save DataFrame as CSV
+    csv_path = Path("data/output/iahwg_sentences.csv")
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(csv_path, index=False, encoding="utf-8")
+    print(f"\nSaved DataFrame to: {csv_path}")
+
     # Create output directory
     output_dir = Path("data/md")
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Clear existing files
     if output_dir.exists():
         for file in output_dir.glob("*.md"):
             file.unlink()
-
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Save each session as separate markdown file
     for session in sessions:
@@ -234,8 +300,8 @@ if __name__ == "__main__":
         session_num = session["session_num"].replace(" ", "_").lower()
         date_clean = session["date"].replace(" ", "_").replace(",", "")
 
-        # Get first three words of description
-        words = session["description"].lower().split()[:3]
+        # Get first three words of title
+        words = session["title"].lower().split()[:3]
         desc_short = "_".join(words)
 
         filename = f"{session_num}_{date_clean}_{desc_short}.md"
