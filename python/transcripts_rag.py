@@ -10,7 +10,12 @@ from tqdm import tqdm
 import sqlite3
 import numpy as np
 from datetime import datetime
+import os
+from dotenv import load_dotenv
 
+
+load_dotenv()
+os.environ["AZURE_OPENAI_ENDPOINT"] = os.getenv("UN80_AZURE_OPENAI_ENDPOINT")
 
 input_path = Path("data") / "output" / "iahwg_sentences.csv"
 df = pd.read_csv(input_path)
@@ -76,6 +81,7 @@ df["text_num_tokens"].agg(["min", "mean", "std", "median", "max"]).round(2)
 
 
 # FIXME: add async or batching for faster run!
+
 
 @memory.cache
 def get_embedding(text: str, model: str = EMBEDDING_MODEL) -> list[float]:

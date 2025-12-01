@@ -1,12 +1,17 @@
+import os
 import sqlite3
 from pathlib import Path
 
+from dotenv import load_dotenv
 import numpy as np
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from openai import OpenAI
 
 DB_PATH = Path("data") / "db" / "iahwg_rag.db"
 EMBEDDING_MODEL = "text-embedding-3-large"
+
+load_dotenv()
+os.environ["AZURE_OPENAI_ENDPOINT"] = os.getenv("UN80_AZURE_OPENAI_ENDPOINT")
 
 token_provider = get_bearer_token_provider(
     DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default"
@@ -40,7 +45,7 @@ def search_sentences(query: str, top_k: int = 10):
         """
         SELECT
             id,
-            text,
+            context_text,
             asset_id,
             session_title,
             session_date,
@@ -55,7 +60,7 @@ def search_sentences(query: str, top_k: int = 10):
     ids, texts, metas, vecs = [], [], [], []
     for (
         _id,
-        text,
+        context_text,
         asset_id,
         session_title,
         session_date,
@@ -64,7 +69,7 @@ def search_sentences(query: str, top_k: int = 10):
     ) in rows:
         vec = np.frombuffer(emb_blob, dtype=np.float32)
         ids.append(_id)
-        texts.append(text)
+        texts.append(context_text)
         metas.append((asset_id, session_title, session_date, speaker_affiliation_name))
         vecs.append(vec)
 
@@ -82,7 +87,7 @@ def search_sentences(query: str, top_k: int = 10):
             {
                 "id": ids[i],
                 "score": float(sims[i]),
-                "text": texts[i],
+                "context_text": texts[i],
                 "asset_id": asset_id,
                 "session_title": session_title,
                 "session_date": session_date,
@@ -94,15 +99,15 @@ def search_sentences(query: str, top_k: int = 10):
 
 
 if __name__ == "__main__":
-    query = "mandate registries"
+    query = "mandate registries, mandate visibility transparency"
     print(f"Query: {query!r}\n")
 
-    hits = search_sentences(query, top_k=10)
+    hits = search_sentences(query, top_k=20)
 
     for h in hits:
         print(
             f"{h['score']:.3f} | {h['speaker_affiliation_name']} | "
             f"{h['session_date']} | {h['session_title']}"
         )
-        print("   ", h["text"])
+        print("   ", h["context_text"])
         print()
