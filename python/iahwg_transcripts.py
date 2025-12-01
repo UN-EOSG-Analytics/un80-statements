@@ -1,35 +1,41 @@
 import json
 import os
 import sqlite3
-
 IAHWG_SESSIONS = [
     (
         "k1k%2Fk1k41vpaer",
-        "Session 1: First meeting of the working group (Sep 16, 2025)",
+        "Session 1: First meeting of the working group",
+        "Sep 16, 2025",
     ),
     (
         "k1q%2Fk1q3jsibpv",
-        "Session 2: Mandate Creation briefing - Panel followed by questions from members of the working group (Oct 13, 2025)",
+        "Session 2: Mandate Creation briefing - Panel followed by questions from members of the working group",
+        "Oct 13, 2025",
     ),
     (
         "k1w%2Fk1w9g0n7gs",
-        "Session 3: Mandate Creation consultations - Statements from members of the working group (Oct 23, 2025)",
+        "Session 3: Mandate Creation consultations - Statements from members of the working group",
+        "Oct 23, 2025",
     ),
     (
         "k11%2Fk11rftq8ch",
-        "Session 4: Mandate Implementation briefing - Panel followed by questions from members of the working group (Oct 30, 2025)",
+        "Session 4: Mandate Implementation briefing - Panel followed by questions from members of the working group",
+        "Oct 30, 2025",
     ),
     (
         "k1j%2Fk1jax5ye21",
-        "Session 5: Mandate Implementation consultations - Statements from members of the working group – Part 1 (Nov 14, 2025)",
+        "Session 5: Mandate Implementation consultations - Statements from members of the working group – Part 1",
+        "Nov 14, 2025",
     ),
     (
         "k1q%2Fk1q3djbdxu",
-        "Session 6: Mandate Implementation consultations - Statements from members of the working group – Part 2 (Nov 14, 2025)",
+        "Session 6: Mandate Implementation consultations - Statements from members of the working group – Part 2",
+        "Nov 14, 2025",
     ),
     (
         "k1q%2Fk1q2ukeao9",
-        "Mandate Review briefing - Panel followed by questions from members of the working group (Nov 25, 2025)",
+        "Mandate Review briefing - Panel followed by questions from members of the working group",
+        "Nov 25, 2025",
     ),
 ]
 
