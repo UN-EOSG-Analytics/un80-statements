@@ -11,8 +11,8 @@ from tqdm import tqdm
 
 load_dotenv()
 
-# Setup cache
-memory = Memory("cache", verbose=0)
+# Setup cache with consistent location
+memory = Memory("cache/iahwg_transcripts", verbose=0)
 
 
 def get_country_name(code):
@@ -170,9 +170,9 @@ def format_session_markdown(session):
         if speaker_parts:
             markdown += f"**{' | '.join(speaker_parts)}**\n\n"
 
-        # Put each sentence on a new line
+        # Put each sentence on a new line with blank line between
         sentences = [s["text"] for p in statement["paragraphs"] for s in p["sentences"]]
-        markdown += "\n".join(sentences) + "\n\n"
+        markdown += "\n\n".join(sentences) + "\n\n"
 
     return markdown
 
