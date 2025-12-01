@@ -1,12 +1,22 @@
 import { NextResponse } from "next/server";
 import { AzureOpenAI } from "openai";
 import { z } from "zod";
+import { LRUCache } from "lru-cache";
 import { getRagClient } from "@/lib/turso-rag";
 import "@/lib/load-env";
 
 export const runtime = "nodejs";
 
 const EMBEDDING_MODEL = "text-embedding-3-large";
+
+// Cache for query embeddings: stores query text -> embedding vector
+// Max 1000 queries, ~500MB memory limit
+const embeddingCache = new LRUCache<string, Float32Array>({
+  max: 1000,
+  maxSize: 500_000_000,
+  sizeCalculation: (value) => value.byteLength,
+  ttl: 1000 * 60 * 60 * 24, // 24 hours
+});
 
 const topKSchema = z
   .preprocess((value) => {
@@ -197,23 +207,37 @@ export async function POST(request: Request) {
       embedding: coerceEmbedding(row.embedding),
     }));
 
-    const apiKey = ensureEnv("AZURE_OPENAI_API_KEY");
-    const endpoint = ensureEnv("AZURE_OPENAI_ENDPOINT");
-    const apiVersion =
-      process.env.AZURE_OPENAI_API_VERSION ?? "2025-03-01-preview";
+    // Check cache for query embedding
+    const cacheKey = `${EMBEDDING_MODEL}:${parsed.query}`;
+    let queryVector: Float32Array;
+    
+    const cachedEmbedding = embeddingCache.get(cacheKey);
+    if (cachedEmbedding) {
+      queryVector = cachedEmbedding;
+    } else {
+      // Cache miss - fetch from Azure OpenAI
+      const apiKey = ensureEnv("AZURE_OPENAI_API_KEY");
+      const endpoint = ensureEnv("AZURE_OPENAI_ENDPOINT");
+      const apiVersion =
+        process.env.AZURE_OPENAI_API_VERSION ?? "2025-03-01-preview";
 
-    const azureClient = new AzureOpenAI({
-      apiKey,
-      endpoint,
-      apiVersion,
-    });
+      const azureClient = new AzureOpenAI({
+        apiKey,
+        endpoint,
+        apiVersion,
+      });
 
-    const embeddingResponse = await azureClient.embeddings.create({
-      model: EMBEDDING_MODEL,
-      input: parsed.query,
-    });
+      const embeddingResponse = await azureClient.embeddings.create({
+        model: EMBEDDING_MODEL,
+        input: parsed.query,
+      });
 
-    const queryVector = new Float32Array(embeddingResponse.data[0].embedding);
+      queryVector = new Float32Array(embeddingResponse.data[0].embedding);
+      
+      // Store in cache for future requests
+      embeddingCache.set(cacheKey, queryVector);
+    }
+
     const normalizedQuery = normalize(queryVector);
 
     const scored = sentences.map((sentence) => {

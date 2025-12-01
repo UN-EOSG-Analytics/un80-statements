@@ -95,6 +95,7 @@ export function RagSearch() {
   const [currentTopK, setCurrentTopK] = useState(50);
   const [selectedTopK, setSelectedTopK] = useState(50);
   const [lastQuery, setLastQuery] = useState("");
+  const [totalCandidates, setTotalCandidates] = useState<number | null>(null);
 
   // Load all data on mount
   useEffect(() => {
@@ -276,6 +277,7 @@ export function RagSearch() {
         cell: (info) => {
           const row = info.row.original;
           const displayText = isSearchActive ? row.contextText : row.text;
+          const mainText = row.text;
           const handleCopy = async () => {
             try {
               await navigator.clipboard.writeText(displayText);
@@ -285,20 +287,53 @@ export function RagSearch() {
               console.error("Failed to copy text", copyError);
             }
           };
+
+          // When showing context, parse it to highlight the main sentence
+          if (isSearchActive && row.contextText) {
+            const contextParts = row.contextText.split(mainText);
+            if (contextParts.length === 2) {
+              return (
+                <div className="group relative">
+                  <p className="pr-10 text-sm leading-relaxed whitespace-pre-wrap">
+                    <span className="text-muted-foreground">
+                      {contextParts[0]}
+                    </span>
+                    <span className="font-semibold text-foreground">
+                      {mainText}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {contextParts[1]}
+                    </span>
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute top-0 right-0 size-8 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-un-blue"
+                    onClick={handleCopy}
+                    title={copiedRow === row.id ? "Copied!" : "Copy text"}
+                  >
+                    <CopyIcon className="size-3.5" />
+                  </Button>
+                </div>
+              );
+            }
+          }
+
           return (
-            <div className="space-y-1">
-              <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">
+            <div className="group relative">
+              <p className="pr-10 text-sm leading-relaxed whitespace-pre-wrap text-foreground">
                 {displayText}
               </p>
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs text-un-blue"
+                size="icon"
+                className="absolute top-0 right-0 size-8 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-un-blue"
                 onClick={handleCopy}
+                title={copiedRow === row.id ? "Copied!" : "Copy text"}
               >
-                <CopyIcon className="mr-2 size-3.5" />
-                {copiedRow === row.id ? "Copied" : "Copy"}
+                <CopyIcon className="size-3.5" />
               </Button>
             </div>
           );
@@ -388,6 +423,7 @@ export function RagSearch() {
           const payload: SearchResponse = await response.json();
           if (response.ok) {
             setFilteredData(payload.data ?? []);
+            setTotalCandidates(payload.meta?.totalCandidates ?? null);
           }
         } catch (loadError) {
           console.error("Failed to load more results", loadError);
@@ -407,6 +443,7 @@ export function RagSearch() {
       setGlobalFilter("");
       setSorting([{ id: "sessionDate", desc: true }]);
       setIsSearchActive(false);
+      setTotalCandidates(null);
       return;
     }
 
@@ -448,6 +485,7 @@ export function RagSearch() {
         throw new Error(payload.error || "Search failed");
       }
       setFilteredData(payload.data ?? []);
+      setTotalCandidates(payload.meta?.totalCandidates ?? null);
       setSorting([{ id: "score", desc: true }]);
       setIsSearchActive(true);
     } catch (searchError) {
@@ -564,9 +602,11 @@ export function RagSearch() {
           </div>
         )}
         {(isSearchActive || columnFilters.length > 0) && (
-          <div className="rounded-md border border-un-blue/30 bg-un-blue/5 px-4 py-3 text-sm space-y-1">
+          <div className="space-y-1 rounded-md border border-un-blue/30 bg-un-blue/5 px-4 py-3 text-sm">
             <div>
-              <span className="font-semibold text-un-blue">Active filters:</span>{" "}
+              <span className="font-semibold text-un-blue">
+                Active filters:
+              </span>{" "}
               {isSearchActive && (
                 <span>
                   Semantic search: &quot;{lastQuery}&quot;
@@ -578,10 +618,12 @@ export function RagSearch() {
                 const value = filter.value as string;
                 let label = "";
                 if (columnId === "sessionDate") label = `Date: ${value}`;
-                else if (columnId === "sessionTitle") label = `Session: ${value}`;
+                else if (columnId === "sessionTitle")
+                  label = `Session: ${value}`;
                 else if (columnId === "speakerAffiliationName")
                   label = `Affiliation: ${value}`;
-                else if (columnId === "speakerName") label = `Speaker: ${value}`;
+                else if (columnId === "speakerName")
+                  label = `Speaker: ${value}`;
                 else if (columnId === "text" || columnId === "contextText")
                   label = `Text contains: ${value}`;
                 return (
@@ -594,7 +636,12 @@ export function RagSearch() {
             </div>
             {isSearchActive && (
               <p className="text-xs text-muted-foreground">
-                Showing top {currentTopK} semantically similar results{columnFilters.length > 0 ? " within filtered subset" : " from all statements"}
+                Showing top {currentTopK} semantically similar results
+                {totalCandidates !== null && columnFilters.length > 0
+                  ? ` within filtered subset (${totalCandidates.toLocaleString()} total)`
+                  : totalCandidates !== null
+                    ? ` from ${totalCandidates.toLocaleString()} statements`
+                    : ""}
               </p>
             )}
           </div>
@@ -628,7 +675,13 @@ export function RagSearch() {
           <div className="ml-auto flex items-center gap-4">
             <p className="text-sm text-muted-foreground">
               Showing {table.getFilteredRowModel().rows.length} of{" "}
-              {filteredData.length} results
+              {filteredData.length}
+              {isSearchActive &&
+              totalCandidates !== null &&
+              totalCandidates > filteredData.length
+                ? ` (subset of ${totalCandidates.toLocaleString()})`
+                : ""}{" "}
+              results
             </p>
             <Button
               type="button"
